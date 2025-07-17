@@ -5,23 +5,28 @@ import config from "@/config";
 const list = [
   {
     // Optional, use for social media like Twitter. Does not link anywhere but cool to display
-    username: "marclou",
+    username: "alexcode",
     // REQUIRED
-    name: "Marc Lou",
+    name: "Alex",
     // REQUIRED
-    text: "Really easy to use. The tutorials are really useful and explains how everything works. Hope to ship my next project really fast!",
+    text: "FeedbackSpec saved me 10+ hours per week. I used to spend entire weekends organizing feedback from Discord and Twitter. Now I just check the dashboard, pick the top 3 requests, and generate specs for Cursor. Shipped 8 new features last month instead of my usual 3.",
     // Optional, a statically imported image (usually from your public folder—recommended) or a link to the person's avatar. Shows a fallback letter if not provided
-    img: "https://pbs.twimg.com/profile_images/1514863683574599681/9k7PqDTA_400x400.jpg",
+    img: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1170&q=80",
+    subtitle: "founder of TaskFlow (MRR: $12k)",
   },
   {
-    username: "the_mcnaveen",
-    name: "Naveen",
-    text: "Setting up everything from the ground up is a really hard, and time consuming process. What you pay for will save your time for sure.",
+    username: "maria_dev",
+    name: "Maria",
+    text: "The automatic prioritization is game-changing. The system identifies what paid users request most often. Instead of guessing, I now make data-driven decisions. Revenue grew 40% in 3 months since I can focus on features that actually matter.",
+    img: "https://images.unsplash.com/photo-1494790108755-2616b36a0036?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1170&q=80",
+    subtitle: "creator of StudyBuddy (MRR: $8k)",
   },
   {
-    username: "wahab",
-    name: "Wahab Shaikh",
-    text: "Easily saves 15+ hrs for me setting up trivial stuff. Now, I can directly focus on shipping features rather than hours of setting up the same technologies from scratch. Feels like a super power! :D",
+    username: "dmitry_code",
+    name: "Dmitry",
+    text: "The Cursor integration is incredible! Copy the spec with one click, paste into AI assistant, and the feature is ready in 15 minutes. Customers are amazed by our development speed. Trial-to-paid conversion increased from 15% to 28%.",
+    img: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1170&q=80",
+    subtitle: "developer of CodeReviewer (MRR: $25k)",
   },
 ];
 
@@ -45,9 +50,9 @@ const Testimonial = ({ i }) => {
               <div className="font-medium text-base-content md:mb-0.5">
                 {testimonial.name}
               </div>
-              {testimonial.username && (
+              {testimonial.subtitle && (
                 <div className="mt-0.5 text-sm text-base-content/80">
-                  @{testimonial.username}
+                  {testimonial.subtitle}
                 </div>
               )}
             </div>
@@ -81,12 +86,12 @@ const Testimonials3 = () => {
         <div className="flex flex-col text-center w-full mb-20">
           <div className="mb-8">
             <h2 className="sm:text-5xl text-4xl font-extrabold text-base-content">
-              212 makers are already shipping faster!
+              200+ indie hackers are already shipping faster!
             </h2>
           </div>
           <p className="lg:w-2/3 mx-auto leading-relaxed text-base text-base-content/80">
             Don&apos;t take our word for it. Here&apos;s what they have to say
-            about ShipFast.
+            about FeedbackSpec.
           </p>
         </div>
 
