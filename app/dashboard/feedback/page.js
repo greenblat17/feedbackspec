@@ -12,6 +12,29 @@ export default function FeedbackPage() {
   const [showForm, setShowForm] = useState(false);
   const [selectedFeedback, setSelectedFeedback] = useState(null);
   const [viewMode, setViewMode] = useState("list"); // 'list' or 'groups'
+  const [processingId, setProcessingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
+
+  // Helper function to handle API errors consistently
+  const handleApiError = (error, context = "operation") => {
+    console.error(`Error during ${context}:`, {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (error.name === "TypeError" && error.message.includes("fetch")) {
+      toast.error("Network error - please check your connection");
+    } else if (error.message.includes("401") || error.message.includes("403")) {
+      toast.error("Authentication error - please sign in again");
+    } else if (error.message.includes("404")) {
+      toast.error("Item not found");
+    } else if (error.message.includes("500")) {
+      toast.error("Server error - please try again later");
+    } else {
+      toast.error(`Failed to complete ${context} - please try again`);
+    }
+  };
 
   // Fetch feedback from API
   useEffect(() => {
@@ -21,6 +44,11 @@ export default function FeedbackPage() {
   const fetchFeedback = async (preserveAiAnalysis = false) => {
     try {
       const response = await fetch("/api/feedback");
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success) {
@@ -52,18 +80,37 @@ export default function FeedbackPage() {
           });
           setFeedbackList(mergedData);
         } else {
-          setFeedbackList(result.data);
+          setFeedbackList(result.data || []);
         }
         setFeedbackGroups(result.feedbackGroups);
         setAiStats(result.aiStats);
         console.log("🤖 AI Stats:", result.aiStats);
         console.log("🔗 Feedback Groups:", result.feedbackGroups);
       } else {
-        toast.error("Failed to load feedback");
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        toast.error(`Failed to load feedback: ${errorMessage}`);
       }
     } catch (error) {
-      console.error("Error fetching feedback:", error);
-      toast.error("Failed to load feedback");
+      console.error("Error fetching feedback:", {
+        message: error.message,
+        stack: error.stack,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (error.name === "TypeError" && error.message.includes("fetch")) {
+        toast.error("Network error - please check your connection");
+      } else if (
+        error.message.includes("401") ||
+        error.message.includes("403")
+      ) {
+        toast.error("Authentication error - please sign in again");
+      } else if (error.message.includes("500")) {
+        toast.error("Server error - please try again later");
+      } else {
+        toast.error("Failed to load feedback - please try again");
+      }
     } finally {
       setLoading(false);
     }
@@ -112,6 +159,17 @@ export default function FeedbackPage() {
   };
 
   const handleMarkAsProcessed = async (id) => {
+    if (!id) {
+      toast.error("Invalid feedback ID");
+      return;
+    }
+
+    if (processingId === id) {
+      return; // Already processing
+    }
+
+    setProcessingId(id);
+
     try {
       const response = await fetch("/api/feedback", {
         method: "PUT",
@@ -120,6 +178,10 @@ export default function FeedbackPage() {
         },
         body: JSON.stringify({ id, processed: true }),
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const result = await response.json();
 
@@ -131,19 +193,50 @@ export default function FeedbackPage() {
         );
         toast.success("Feedback marked as processed");
       } else {
-        toast.error("Failed to update feedback");
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        toast.error(`Failed to update feedback: ${errorMessage}`);
       }
     } catch (error) {
-      console.error("Error updating feedback:", error);
-      toast.error("Failed to update feedback");
+      handleApiError(error, "marking feedback as processed");
+    } finally {
+      setProcessingId(null);
     }
   };
 
   const handleDeleteFeedback = async (id) => {
+    if (!id) {
+      toast.error("Invalid feedback ID");
+      return;
+    }
+
+    if (deletingId === id) {
+      return; // Already deleting
+    }
+
+    // Show confirmation dialog
+    if (
+      !confirm(
+        "Are you sure you want to delete this feedback? This action cannot be undone."
+      )
+    ) {
+      return;
+    }
+
+    setDeletingId(id);
+
     try {
-      const response = await fetch(`/api/feedback?id=${id}`, {
-        method: "DELETE",
-      });
+      const response = await fetch(
+        `/api/feedback?id=${encodeURIComponent(id)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const result = await response.json();
 
@@ -152,13 +245,17 @@ export default function FeedbackPage() {
           prev.filter((feedback) => feedback.id !== id)
         );
         setSelectedFeedback(null);
-        toast.success("Feedback deleted");
+        toast.success("Feedback deleted successfully");
       } else {
-        toast.error("Failed to delete feedback");
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        toast.error(`Failed to delete feedback: ${errorMessage}`);
       }
     } catch (error) {
-      console.error("Error deleting feedback:", error);
-      toast.error("Failed to delete feedback");
+      handleApiError(error, "deleting feedback");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -854,18 +951,36 @@ export default function FeedbackPage() {
                         onClick={() =>
                           handleMarkAsProcessed(selectedFeedback.id)
                         }
-                        className="btn btn-success btn-sm w-full"
+                        disabled={processingId === selectedFeedback.id}
+                        className={`btn btn-success btn-sm w-full ${
+                          processingId === selectedFeedback.id ? "loading" : ""
+                        }`}
                       >
-                        <span className="text-sm">✅</span>
-                        Mark as Processed
+                        {processingId === selectedFeedback.id ? (
+                          "Processing..."
+                        ) : (
+                          <>
+                            <span className="text-sm">✅</span>
+                            Mark as Processed
+                          </>
+                        )}
                       </button>
                     )}
                     <button
                       onClick={() => handleDeleteFeedback(selectedFeedback.id)}
-                      className="btn btn-error btn-sm w-full"
+                      disabled={deletingId === selectedFeedback.id}
+                      className={`btn btn-error btn-sm w-full ${
+                        deletingId === selectedFeedback.id ? "loading" : ""
+                      }`}
                     >
-                      <span className="text-sm">🗑️</span>
-                      Delete Feedback
+                      {deletingId === selectedFeedback.id ? (
+                        "Deleting..."
+                      ) : (
+                        <>
+                          <span className="text-sm">🗑️</span>
+                          Delete Feedback
+                        </>
+                      )}
                     </button>
                   </div>
                 </div>
