@@ -19,6 +19,8 @@ export default function FeedbackPage() {
   const [generatedSpecs, setGeneratedSpecs] = useState({});
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [currentSpec, setCurrentSpec] = useState(null);
+  const [generatedClusterSpecs, setGeneratedClusterSpecs] = useState({});
+  const [generatingClusterSpecId, setGeneratingClusterSpecId] = useState(null);
 
   // Helper function to handle API errors consistently
   const handleApiError = (error, context = "operation") => {
@@ -45,6 +47,7 @@ export default function FeedbackPage() {
   useEffect(() => {
     fetchFeedback();
     loadExistingSpecs();
+    loadExistingClusterSpecs();
   }, []);
 
   const fetchFeedback = async (preserveAiAnalysis = false) => {
@@ -154,6 +157,126 @@ export default function FeedbackPage() {
     }
   };
 
+  const loadExistingClusterSpecs = async () => {
+    try {
+      const response = await fetch("/api/generate-spec");
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("🔍 Raw cluster specs response:", result);
+
+      if (result.success && result.data) {
+        const clusterSpecsMap = {};
+
+        // Map cluster specs to cluster IDs
+        result.data.forEach((spec) => {
+          if (spec.cluster_id) {
+            clusterSpecsMap[spec.cluster_id] = spec.content;
+            console.log(
+              `📋 Loaded cluster spec for ID: ${spec.cluster_id}, Title: ${spec.title}`
+            );
+          }
+        });
+
+        setGeneratedClusterSpecs(clusterSpecsMap);
+        console.log(
+          "✅ Total cluster specs loaded:",
+          Object.keys(clusterSpecsMap).length
+        );
+        console.log("📊 Cluster spec IDs:", Object.keys(clusterSpecsMap));
+      }
+    } catch (error) {
+      console.error("Error loading existing cluster specs:", error);
+      // Don't show error toast for this as it's not critical
+    }
+  };
+
+  const handleGenerateClusterSpec = async (group, groupIndex) => {
+    if (!group) {
+      toast.error("Invalid cluster group");
+      return;
+    }
+
+    // Use real cluster ID from the group, fallback to theme-based ID for compatibility
+    const clusterId =
+      group.clusterId ||
+      `theme_${group.theme.replace(/[^a-zA-Z0-9]/g, "_").toLowerCase()}`;
+
+    console.log(`🎯 Generating spec for cluster ID: ${clusterId}`);
+
+    if (generatingClusterSpecId === clusterId) {
+      return; // Already generating
+    }
+
+    setGeneratingClusterSpecId(clusterId);
+
+    try {
+      // Get feedback content for this cluster
+      const clusterFeedback = group.feedbackIds
+        .map((feedbackId) => {
+          const feedback = feedbackList.find((f) => f.id === feedbackId);
+          return feedback ? feedback.content : null;
+        })
+        .filter(Boolean);
+
+      if (clusterFeedback.length === 0) {
+        toast.error("No feedback content found for this cluster");
+        return;
+      }
+
+      console.log(
+        `📊 Sending ${clusterFeedback.length} feedback items for cluster: ${group.theme}`
+      );
+
+      const response = await fetch("/api/generate-spec", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          theme: group.theme,
+          feedbackList: clusterFeedback,
+          clusterId: clusterId,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log("📋 Generate spec response:", result);
+
+      if (result.success) {
+        setGeneratedClusterSpecs((prev) => ({
+          ...prev,
+          [clusterId]: result.spec,
+        }));
+        console.log(`✅ Saved cluster spec for ID: ${clusterId}`);
+
+        setCurrentSpec({
+          clusterId: clusterId,
+          clusterTheme: group.theme,
+          spec: result.spec,
+        });
+        setShowSpecModal(true);
+        toast.success("Cluster specification generated successfully!");
+      } else {
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        toast.error(`Failed to generate cluster spec: ${errorMessage}`);
+      }
+    } catch (error) {
+      handleApiError(error, "generating cluster specification");
+    } finally {
+      setGeneratingClusterSpecId(null);
+    }
+  };
+
   const handleFeedbackSubmit = async (feedbackData) => {
     // Add the new feedback to the list
     setFeedbackList((prev) => [feedbackData, ...prev]);
@@ -164,8 +287,15 @@ export default function FeedbackPage() {
       feedbackData.duplicateCheck?.isDuplicate &&
       feedbackData.duplicateCheck.similarityScore > 0.7
     ) {
-      toast.warn(
-        `Similar feedback detected: ${feedbackData.duplicateCheck.explanation}`
+      toast(
+        `Similar feedback detected: ${feedbackData.duplicateCheck.explanation}`,
+        {
+          icon: "⚠️",
+          style: {
+            borderColor: "#f59e0b",
+            color: "#f59e0b",
+          },
+        }
       );
     }
 
@@ -618,6 +748,14 @@ export default function FeedbackPage() {
                 </div>
               ) : viewMode === "groups" && feedbackGroups ? (
                 <div className="space-y-4">
+                  {console.log(
+                    "🔍 Debug: feedbackGroups.groups:",
+                    feedbackGroups.groups
+                  )}
+                  {console.log(
+                    "🔍 Debug: group details:",
+                    JSON.stringify(feedbackGroups.groups, null, 2)
+                  )}
                   {feedbackGroups.groups.map((group, groupIndex) => (
                     <div
                       key={groupIndex}
@@ -671,6 +809,73 @@ export default function FeedbackPage() {
                           Suggested Action:
                         </span>
                         <p className="text-sm mt-1">{group.suggestedAction}</p>
+                      </div>
+
+                      {/* Generate Spec Buttons */}
+                      <div className="flex gap-2 mb-3">
+                        {generatedClusterSpecs[
+                          group.clusterId ||
+                            `theme_${group.theme
+                              .replace(/[^a-zA-Z0-9]/g, "_")
+                              .toLowerCase()}`
+                        ] ? (
+                          <button
+                            onClick={() => {
+                              const clusterId =
+                                group.clusterId ||
+                                `theme_${group.theme
+                                  .replace(/[^a-zA-Z0-9]/g, "_")
+                                  .toLowerCase()}`;
+                              setCurrentSpec({
+                                clusterId: clusterId,
+                                clusterTheme: group.theme,
+                                spec: generatedClusterSpecs[clusterId],
+                              });
+                              setShowSpecModal(true);
+                            }}
+                            className="btn btn-sm btn-outline btn-primary"
+                            title="View generated specification for this cluster"
+                          >
+                            <span className="text-xs">📋</span>
+                            View Spec
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              handleGenerateClusterSpec(group, groupIndex)
+                            }
+                            disabled={
+                              generatingClusterSpecId ===
+                              (group.clusterId ||
+                                `theme_${group.theme
+                                  .replace(/[^a-zA-Z0-9]/g, "_")
+                                  .toLowerCase()}`)
+                            }
+                            className={`btn btn-sm btn-primary ${
+                              generatingClusterSpecId ===
+                              (group.clusterId ||
+                                `theme_${group.theme
+                                  .replace(/[^a-zA-Z0-9]/g, "_")
+                                  .toLowerCase()}`)
+                                ? "loading"
+                                : ""
+                            }`}
+                            title="Generate specification for this cluster"
+                          >
+                            {generatingClusterSpecId ===
+                            (group.clusterId ||
+                              `theme_${group.theme
+                                .replace(/[^a-zA-Z0-9]/g, "_")
+                                .toLowerCase()}`) ? (
+                              "Generating..."
+                            ) : (
+                              <>
+                                <span className="text-xs">🎯</span>
+                                Generate Spec
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
 
                       <div className="space-y-2">
@@ -1202,9 +1407,11 @@ export default function FeedbackPage() {
 
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-medium">Feedback:</span>
+                    <span className="text-sm font-medium">
+                      {currentSpec.feedbackTitle ? "Feedback:" : "Cluster:"}
+                    </span>
                     <span className="badge badge-outline">
-                      {currentSpec.feedbackTitle}
+                      {currentSpec.feedbackTitle || currentSpec.clusterTheme}
                     </span>
                   </div>
                 </div>

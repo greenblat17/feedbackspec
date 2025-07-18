@@ -294,6 +294,46 @@ async function updateFeedbackClusters(supabase, userId) {
       );
     });
 
+    // Check if we already have valid clusters first
+    console.log("🔍 Checking for existing clusters for user:", userId);
+    const { data: existingClusters, error: checkError } = await supabase
+      .from("feedback_clusters")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    console.log("🔍 Existing clusters check result:", {
+      count: existingClusters?.length || 0,
+      error: checkError?.message || null,
+      clusters:
+        existingClusters?.map((c) => ({
+          id: c.id,
+          theme: c.cluster_data?.theme,
+        })) || [],
+    });
+
+    if (existingClusters && existingClusters.length > 0) {
+      console.log(`✅ Using existing ${existingClusters.length} clusters`);
+      return {
+        groups: existingClusters.map((cluster) => ({
+          ...cluster.cluster_data,
+          clusterId: cluster.id,
+        })),
+        summary: {
+          totalGroups: existingClusters.length,
+          largestGroupSize: Math.max(
+            ...existingClusters.map((c) => c.feedback_ids?.length || 0)
+          ),
+          mostCommonTheme:
+            existingClusters[0]?.cluster_data?.theme || "Unknown",
+        },
+        ungrouped: [],
+        storedClusters: existingClusters,
+      };
+    }
+
+    console.log("🔍 No existing clusters found, generating new ones with AI");
+
     const feedbackGroups = await Promise.race([
       groupSimilarFeedback(transformedFeedback, userId),
       clusteringTimeout,
@@ -304,20 +344,8 @@ async function updateFeedbackClusters(supabase, userId) {
       return null;
     }
 
-    // Clear existing clusters for this user
-    const { error: deleteError } = await supabase
-      .from("feedback_clusters")
-      .delete()
-      .eq("user_id", userId);
-
-    if (deleteError) {
-      console.error("❌ Failed to clear existing clusters:", {
-        error: deleteError.message,
-        userId: userId,
-        code: deleteError.code,
-      });
-      // Continue anyway - we'll try to insert new ones
-    }
+    // Only create new clusters if none exist
+    // DON'T delete existing clusters to preserve cluster_id relationships
 
     // Insert new clusters with validation using correct schema
     const clusterInserts = feedbackGroups.groups
@@ -368,7 +396,12 @@ async function updateFeedbackClusters(supabase, userId) {
 
     // Return both the AI response and the stored clusters
     return {
-      ...feedbackGroups,
+      groups: (storedClusters || []).map((cluster) => ({
+        ...cluster.cluster_data,
+        clusterId: cluster.id,
+      })),
+      summary: feedbackGroups.summary,
+      ungrouped: feedbackGroups.ungrouped,
       storedClusters: storedClusters || [],
     };
   } catch (error) {
@@ -411,7 +444,10 @@ async function updateFeedbackClusters(supabase, userId) {
 
       if (storedClusters && storedClusters.length > 0) {
         return {
-          groups: storedClusters.map((cluster) => cluster.cluster_data),
+          groups: storedClusters.map((cluster) => ({
+            ...cluster.cluster_data,
+            clusterId: cluster.id,
+          })),
           storedClusters: storedClusters,
           summary: {
             totalGroups: storedClusters.length,

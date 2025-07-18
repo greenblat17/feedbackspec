@@ -47,8 +47,88 @@ export async function POST(request) {
     }
 
     const body = await request.json();
-    const { clusterId } = body;
+    const { clusterId, theme, feedbackList } = body;
 
+    // Handle direct cluster spec generation (new format)
+    if (theme && feedbackList && clusterId) {
+      console.log(`🎯 Generating specification for cluster theme: ${theme}`);
+      console.log(`📊 Using ${feedbackList.length} feedback items`);
+
+      // Generate specification using AI
+      try {
+        const generatedSpec = await generateSpec(theme, feedbackList, user.id);
+
+        if (!generatedSpec) {
+          return NextResponse.json(
+            {
+              error: "Failed to generate specification",
+              message: "AI service returned empty response",
+            },
+            { status: 500 }
+          );
+        }
+
+        console.log("✅ Specification generated successfully");
+
+        // Save the generated spec to database for caching
+        try {
+          const specData = {
+            user_id: user.id,
+            cluster_id: clusterId,
+            title: `Spec for ${theme}`,
+            content: generatedSpec,
+          };
+
+          console.log("💾 Saving spec to database:", {
+            user_id: user.id,
+            cluster_id: clusterId,
+            title: specData.title,
+          });
+
+          const { error: saveError } = await supabase
+            .from("generated_specs")
+            .upsert(specData);
+
+          if (saveError) {
+            console.warn(
+              "Failed to save generated spec to database:",
+              saveError
+            );
+            console.warn("SaveError details:", saveError);
+            // Continue anyway - the spec was generated successfully
+          } else {
+            console.log("✅ Generated spec saved to database successfully");
+          }
+        } catch (saveError) {
+          console.warn("Error saving generated spec:", saveError);
+          // Continue anyway
+        }
+
+        return NextResponse.json({
+          success: true,
+          spec: generatedSpec,
+          cluster: {
+            id: clusterId,
+            theme: theme,
+            feedbackCount: feedbackList.length,
+          },
+          feedbackUsed: feedbackList.length,
+          message: "Specification generated successfully",
+        });
+      } catch (specError) {
+        console.error("Error generating specification:", specError);
+        return NextResponse.json(
+          {
+            error: "Failed to generate specification",
+            message: "AI service encountered an error",
+            details: specError.message,
+          },
+          { status: 500 }
+        );
+      }
+    }
+
+    // Original format - fetch cluster from database
     if (!clusterId) {
       return NextResponse.json(
         { error: "Cluster ID is required" },
@@ -111,19 +191,23 @@ export async function POST(request) {
     }
 
     // Transform feedback data to text array
-    const feedbackList = feedbackData.map((item) => {
+    const clusterFeedbackList = feedbackData.map((item) => {
       return item.content || item.metadata?.title || "No content";
     });
 
     const clusterData = cluster.cluster_data || {};
-    const theme = clusterData.theme || "Untitled";
+    const clusterTheme = clusterData.theme || "Untitled";
 
-    console.log(`🎯 Generating specification for cluster: ${theme}`);
-    console.log(`📊 Using ${feedbackList.length} feedback items`);
+    console.log(`🎯 Generating specification for cluster: ${clusterTheme}`);
+    console.log(`📊 Using ${clusterFeedbackList.length} feedback items`);
 
     // Generate specification using AI
     try {
-      const generatedSpec = await generateSpec(theme, feedbackList, user.id);
+      const generatedSpec = await generateSpec(
+        clusterTheme,
+        clusterFeedbackList,
+        user.id
+      );
 
       if (!generatedSpec) {
         return NextResponse.json(
@@ -144,7 +228,7 @@ export async function POST(request) {
           .upsert({
             user_id: user.id,
             cluster_id: clusterId,
-            title: `Spec for ${theme}`,
+            title: `Spec for ${clusterTheme}`,
             content: generatedSpec,
           });
 
@@ -165,7 +249,7 @@ export async function POST(request) {
         spec: generatedSpec,
         cluster: {
           id: cluster.id,
-          theme: theme,
+          theme: clusterTheme,
           summary:
             clusterData.description ||
             clusterData.suggestedAction ||
@@ -173,7 +257,7 @@ export async function POST(request) {
           priority: clusterData.severity || "medium",
           feedbackCount: cluster.feedback_ids?.length || 0,
         },
-        feedbackUsed: feedbackList.length,
+        feedbackUsed: clusterFeedbackList.length,
         message: "Specification generated successfully",
       });
     } catch (specError) {
@@ -219,20 +303,9 @@ export async function GET(request) {
 
     let query = supabase
       .from("generated_specs")
-      .select(
-        `
-        *,
-        feedback_clusters!inner(
-          id,
-          theme,
-          summary,
-          priority,
-          feedback_count
-        )
-      `
-      )
+      .select("*")
       .eq("user_id", user.id)
-      .order("updated_at", { ascending: false });
+      .order("created_at", { ascending: false });
 
     if (clusterId) {
       query = query.eq("cluster_id", clusterId);
@@ -250,6 +323,9 @@ export async function GET(request) {
         { status: 500 }
       );
     }
+
+    console.log("📋 Fetched specs from database:", specs?.length || 0);
+    console.log("🔍 Cluster IDs found:", specs?.map((s) => s.cluster_id) || []);
 
     return NextResponse.json({
       success: true,
