@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import {
+  analyzeFeedback,
+  findDuplicateFeedback,
+  groupSimilarFeedback,
+} from "../../../libs/gpt.js";
 
 // Validation rules and constants
 const VALIDATION_RULES = {
@@ -258,11 +263,54 @@ export async function GET(request) {
       processed: item.processed,
       submittedBy: item.user_id,
       metadata: item.metadata,
+      aiAnalysis: item.ai_analysis || null, // Include AI analysis if available
     }));
+
+    // Group similar feedback if AI is available and there are multiple feedback items
+    let feedbackGroups = null;
+    if (process.env.OPENAI_API_KEY && transformedFeedback.length > 1) {
+      console.log("🔗 Grouping similar feedback...");
+
+      try {
+        feedbackGroups = await groupSimilarFeedback(
+          transformedFeedback,
+          user.id
+        );
+
+        if (feedbackGroups) {
+          console.log(
+            `✅ Grouped feedback into ${feedbackGroups.summary.totalGroups} groups`
+          );
+        }
+      } catch (groupError) {
+        console.error("Warning: Feedback grouping failed:", groupError.message);
+        // Continue without grouping
+      }
+    }
+
+    // Calculate AI-powered statistics
+    const aiStats = {
+      totalAnalyzed: transformedFeedback.filter((f) => f.aiAnalysis).length,
+      sentimentDistribution: transformedFeedback.reduce((acc, f) => {
+        if (f.aiAnalysis?.sentiment) {
+          acc[f.aiAnalysis.sentiment] = (acc[f.aiAnalysis.sentiment] || 0) + 1;
+        }
+        return acc;
+      }, {}),
+      aiPriorityDistribution: transformedFeedback.reduce((acc, f) => {
+        if (f.aiAnalysis?.priority) {
+          acc[f.aiAnalysis.priority] = (acc[f.aiAnalysis.priority] || 0) + 1;
+        }
+        return acc;
+      }, {}),
+      topThemes: feedbackGroups?.groups?.map((g) => g.theme) || [],
+    };
 
     return NextResponse.json({
       success: true,
       data: transformedFeedback,
+      feedbackGroups: feedbackGroups,
+      aiStats: aiStats,
       message: "Feedback retrieved successfully",
     });
   } catch (error) {
@@ -374,6 +422,30 @@ export async function POST(request) {
       processed: false,
     };
 
+    // Check for duplicate feedback before saving
+    let duplicateCheck = null;
+    if (process.env.OPENAI_API_KEY) {
+      try {
+        // Get existing feedback to check for duplicates
+        const { data: existingFeedback } = await supabase
+          .from("raw_feedback")
+          .select("id, content")
+          .eq("user_id", user.id)
+          .limit(20); // Check against recent feedback only
+
+        if (existingFeedback && existingFeedback.length > 0) {
+          duplicateCheck = await findDuplicateFeedback(
+            sanitizedData.content,
+            existingFeedback,
+            user.id
+          );
+        }
+      } catch (error) {
+        console.error("Warning: Duplicate check failed:", error.message);
+        // Continue anyway
+      }
+    }
+
     // Save to database
     const { data: insertedData, error: insertError } = await supabase
       .from("raw_feedback")
@@ -393,6 +465,43 @@ export async function POST(request) {
       );
     }
 
+    // Perform AI Analysis on the feedback
+    let aiAnalysis = null;
+    if (process.env.OPENAI_API_KEY && insertedData.content) {
+      console.log("🧠 Performing AI analysis on feedback...");
+
+      try {
+        // Analyze the feedback content
+        aiAnalysis = await analyzeFeedback(insertedData.content, user.id);
+
+        if (aiAnalysis) {
+          console.log(
+            `✅ AI Analysis completed: ${aiAnalysis.sentiment} sentiment, ${aiAnalysis.priority} priority`
+          );
+
+          // Update the feedback record with AI analysis
+          try {
+            await supabase
+              .from("raw_feedback")
+              .update({
+                processed: true,
+                ai_analysis: aiAnalysis,
+              })
+              .eq("id", insertedData.id);
+          } catch (updateError) {
+            console.error(
+              "Warning: Could not update feedback with AI analysis:",
+              updateError.message
+            );
+            // Continue anyway
+          }
+        }
+      } catch (aiError) {
+        console.error("Warning: AI analysis failed:", aiError.message);
+        // Continue anyway - feedback was saved successfully, just without AI analysis
+      }
+    }
+
     // Transform the response to match frontend format
     const responseData = {
       id: insertedData.id,
@@ -404,18 +513,40 @@ export async function POST(request) {
       userEmail: insertedData.metadata?.userEmail || null,
       tags: insertedData.metadata?.tags || [],
       submittedAt: insertedData.created_at,
-      processed: insertedData.processed,
+      processed: insertedData.processed || (aiAnalysis ? true : false),
       submittedBy: insertedData.user_id,
       metadata: insertedData.metadata,
+      aiAnalysis: aiAnalysis, // Include AI analysis in response
+      duplicateCheck: duplicateCheck, // Include duplicate check results
     };
-    return NextResponse.json(
-      {
-        success: true,
-        data: responseData,
-        message: "Feedback created successfully",
-      },
-      { status: 201 }
-    );
+
+    const response = {
+      success: true,
+      data: responseData,
+      message: "Feedback created successfully",
+    };
+
+    // Add AI analysis status to response
+    if (aiAnalysis) {
+      response.message = "Feedback created and analyzed successfully";
+      response.aiAnalysisStatus = "completed";
+    } else if (process.env.OPENAI_API_KEY) {
+      response.aiAnalysisStatus = "failed";
+    } else {
+      response.aiAnalysisStatus = "disabled";
+    }
+
+    // Add duplicate warning if needed
+    if (duplicateCheck?.isDuplicate && duplicateCheck.similarityScore > 0.7) {
+      response.duplicateWarning = {
+        message: "Similar feedback already exists",
+        similarityScore: duplicateCheck.similarityScore,
+        explanation: duplicateCheck.explanation,
+        suggestedAction: duplicateCheck.suggestedAction,
+      };
+    }
+
+    return NextResponse.json(response, { status: 201 });
   } catch (error) {
     console.error("[Feedback Creation Error]", error);
     return NextResponse.json(
