@@ -47,6 +47,12 @@ export default function Dashboard() {
   const [showSpecModal, setShowSpecModal] = useState(false);
   const [currentSpec, setCurrentSpec] = useState(null);
 
+  // Loading states
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [specGenerating, setSpecGenerating] = useState(false);
+  const [clusteringInProgress, setClusteringInProgress] = useState(false);
+  const [initialLoad, setInitialLoad] = useState(true);
+
   const tabs = [
     { id: "dashboard", label: "Dashboard", icon: "🏠" },
     { id: "feedback", label: "Feedback", icon: "💬" },
@@ -72,40 +78,188 @@ export default function Dashboard() {
     }
   }, [activeTab]);
 
-  const fetchFeedback = async () => {
-    try {
-      const response = await fetch("/api/feedback");
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const result = await response.json();
-      if (result.success) {
-        setFeedbackList(result.data || []);
-        setFeedbackGroups(result.feedbackGroups);
-        setAiStats(result.aiStats);
-      }
-    } catch (error) {
-      console.error("Error fetching feedback:", error);
-      toast.error("Failed to load feedback");
+  // Initial load of feedback data
+  useEffect(() => {
+    fetchFeedback();
+  }, []);
+
+  // Enhanced error handling helper
+  const handleApiError = (error, context = "operation") => {
+    console.error(`Error during ${context}:`, {
+      message: error.message,
+      stack: error.stack,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (error.name === "TypeError" && error.message.includes("fetch")) {
+      toast.error("Network error - please check your connection");
+    } else if (error.message.includes("401") || error.message.includes("403")) {
+      toast.error("Authentication error - please sign in again");
+    } else if (error.message.includes("404")) {
+      toast.error("Item not found");
+    } else if (error.message.includes("500")) {
+      toast.error("Server error - please try again later");
+    } else if (error.message.includes("503")) {
+      toast.error("Service temporarily unavailable");
+    } else {
+      toast.error(`Failed to complete ${context} - please try again`);
     }
   };
 
+  // Enhanced feedback fetching with better error handling
+  const fetchFeedback = async (preserveAiAnalysis = false) => {
+    try {
+      setFeedbackLoading(true);
+
+      const response = await fetch("/api/feedback", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        if (preserveAiAnalysis) {
+          // Smart merge: preserve existing AI analysis if server doesn't have it
+          const mergedData = result.data.map((serverItem) => {
+            const existingItem = feedbackList.find(
+              (item) => item.id === serverItem.id
+            );
+            if (
+              existingItem &&
+              existingItem.aiAnalysis &&
+              !serverItem.aiAnalysis
+            ) {
+              return { ...serverItem, aiAnalysis: existingItem.aiAnalysis };
+            }
+            // Check if AI analysis was just completed
+            if (
+              existingItem &&
+              !existingItem.aiAnalysis &&
+              serverItem.aiAnalysis
+            ) {
+              toast.dismiss("ai-analysis");
+              toast.success(
+                `🤖 AI analysis completed! Detected ${serverItem.aiAnalysis.sentiment} sentiment.`
+              );
+            }
+            return serverItem;
+          });
+          setFeedbackList(mergedData);
+        } else {
+          setFeedbackList(result.data || []);
+        }
+        setFeedbackGroups(result.feedbackGroups);
+        setAiStats(result.aiStats);
+
+        // Show clustering status
+        if (result.feedbackGroups?.groups?.length > 0) {
+          console.log(
+            `🔗 Loaded ${result.feedbackGroups.groups.length} feedback clusters`
+          );
+          if (result.feedbackGroups.groups.length > 0 && !preserveAiAnalysis) {
+            toast.success(
+              `🔗 Organized ${result.feedbackGroups.groups.length} feedback clusters`
+            );
+          }
+        }
+      } else {
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        handleApiError(new Error(errorMessage), "loading feedback");
+      }
+    } catch (error) {
+      handleApiError(error, "loading feedback");
+    } finally {
+      setFeedbackLoading(false);
+      setInitialLoad(false);
+    }
+  };
+
+  // Enhanced feedback submission with progress tracking
   const handleFeedbackSubmit = async (feedbackData) => {
-    setFeedbackList((prev) => [feedbackData, ...prev]);
-    setShowForm(false);
-    setActiveTab("feedback");
-    toast.success("Feedback submitted successfully!");
-    // Refresh feedback data
-    setTimeout(() => fetchFeedback(), 1000);
+    try {
+      // Show processing status
+      toast.loading("Processing feedback...", { id: "feedback-processing" });
+
+      // Add to list immediately for instant feedback
+      setFeedbackList((prev) => [feedbackData, ...prev]);
+      setShowForm(false);
+      setActiveTab("feedback");
+
+      // Update toast for AI analysis
+      toast.loading("🤖 AI analysis in progress...", {
+        id: "feedback-processing",
+      });
+
+      // Check for duplicate warnings
+      if (
+        feedbackData.duplicateCheck?.isDuplicate &&
+        feedbackData.duplicateCheck.similarityScore > 0.7
+      ) {
+        toast.warning(
+          `Similar feedback detected: ${feedbackData.duplicateCheck.explanation}`,
+          { duration: 5000 }
+        );
+      }
+
+      // Show AI analysis result
+      if (feedbackData.aiAnalysis) {
+        toast.success(
+          `Feedback submitted! AI detected ${feedbackData.aiAnalysis.sentiment} sentiment.`,
+          { id: "feedback-processing" }
+        );
+      } else {
+        toast.success("Feedback submitted successfully!", {
+          id: "feedback-processing",
+        });
+        // Continue showing AI analysis progress
+        toast.loading("🤖 AI analysis in progress...", {
+          id: "ai-analysis",
+          duration: 10000,
+        });
+      }
+
+      // Refresh data to get updated grouping with delay for AI processing
+      setTimeout(() => {
+        fetchFeedback(true);
+        toast.dismiss("ai-analysis");
+      }, 3000);
+
+      console.log("✅ Feedback submitted successfully:", feedbackData);
+    } catch (error) {
+      handleApiError(error, "submitting feedback");
+      // Remove from list if submission failed
+      setFeedbackList((prev) =>
+        prev.filter((item) => item.id !== feedbackData.id)
+      );
+    }
   };
 
   const handleFeedbackClick = (feedback) => {
     setSelectedFeedback(feedback);
   };
 
+  // Enhanced mark as processed with optimistic updates
   const handleMarkAsProcessed = async (id) => {
-    if (processingId === id) return;
+    if (!id || processingId === id) return;
+
     setProcessingId(id);
+
+    // Optimistic update
+    const previousFeedback = feedbackList.find((f) => f.id === id);
+    setFeedbackList((prev) =>
+      prev.map((feedback) =>
+        feedback.id === id ? { ...feedback, processed: true } : feedback
+      )
+    );
 
     try {
       const response = await fetch("/api/feedback", {
@@ -114,30 +268,52 @@ export default function Dashboard() {
         body: JSON.stringify({ id, processed: true }),
       });
 
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const result = await response.json();
+
       if (result.success) {
-        setFeedbackList((prev) =>
-          prev.map((feedback) =>
-            feedback.id === id ? { ...feedback, processed: true } : feedback
-          )
-        );
         toast.success("Feedback marked as processed");
+      } else {
+        throw new Error(result.message || "Failed to update feedback");
       }
     } catch (error) {
-      toast.error("Failed to update feedback");
+      // Revert optimistic update on error
+      setFeedbackList((prev) =>
+        prev.map((feedback) =>
+          feedback.id === id
+            ? { ...feedback, processed: previousFeedback?.processed || false }
+            : feedback
+        )
+      );
+      handleApiError(error, "marking feedback as processed");
     } finally {
       setProcessingId(null);
     }
   };
 
+  // Enhanced delete with confirmation and optimistic updates
   const handleDeleteFeedback = async (id) => {
-    if (deletingId === id) return;
-    if (!confirm("Are you sure you want to delete this feedback?")) return;
+    if (!id || deletingId === id) return;
+
+    const feedbackToDelete = feedbackList.find((f) => f.id === id);
+    if (!feedbackToDelete) return;
+
+    if (
+      !confirm(
+        `Are you sure you want to delete "${feedbackToDelete.title}"? This action cannot be undone.`
+      )
+    ) {
+      return;
+    }
 
     setDeletingId(id);
+
+    // Optimistic update
+    setFeedbackList((prev) => prev.filter((feedback) => feedback.id !== id));
+    setSelectedFeedback(null);
 
     try {
       const response = await fetch(
@@ -147,39 +323,63 @@ export default function Dashboard() {
         }
       );
 
-      if (!response.ok)
+      if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
+      }
 
       const result = await response.json();
+
       if (result.success) {
-        setFeedbackList((prev) =>
-          prev.filter((feedback) => feedback.id !== id)
-        );
-        setSelectedFeedback(null);
         toast.success("Feedback deleted successfully");
+      } else {
+        throw new Error(result.message || "Failed to delete feedback");
       }
     } catch (error) {
-      toast.error("Failed to delete feedback");
+      // Revert optimistic update on error
+      setFeedbackList((prev) => [feedbackToDelete, ...prev]);
+      handleApiError(error, "deleting feedback");
     } finally {
       setDeletingId(null);
     }
   };
 
+  // Enhanced spec generation with better error handling
   const handleGenerateSpec = async (feedback) => {
-    if (generatingSpecId === feedback.id) return;
+    if (!feedback || generatingSpecId === feedback.id) return;
+
+    // Check if already generated
+    if (generatedSpecs[feedback.id]) {
+      setCurrentSpec({
+        feedbackId: feedback.id,
+        feedbackTitle: feedback.title,
+        spec: generatedSpecs[feedback.id],
+      });
+      setShowSpecModal(true);
+      return;
+    }
+
     setGeneratingSpecId(feedback.id);
 
     try {
+      toast.loading(`Generating specification for "${feedback.title}"...`, {
+        id: `spec-gen-${feedback.id}`,
+      });
+
       const response = await fetch("/api/generate-individual-spec", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedbackId: feedback.id }),
       });
 
-      if (!response.ok)
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(
+          errorData.message || `HTTP error! status: ${response.status}`
+        );
+      }
 
       const result = await response.json();
+
       if (result.success) {
         setGeneratedSpecs((prev) => ({
           ...prev,
@@ -191,21 +391,40 @@ export default function Dashboard() {
           spec: result.spec,
         });
         setShowSpecModal(true);
-        toast.success("Specification generated successfully!");
+        toast.success("Specification generated successfully!", {
+          id: `spec-gen-${feedback.id}`,
+        });
+      } else {
+        throw new Error(result.message || "Failed to generate specification");
       }
     } catch (error) {
-      toast.error("Failed to generate specification");
+      toast.error(`Failed to generate specification: ${error.message}`, {
+        id: `spec-gen-${feedback.id}`,
+      });
+      handleApiError(error, "generating specification");
     } finally {
       setGeneratingSpecId(null);
     }
   };
 
+  // Enhanced clipboard copy with better feedback
   const copySpecToClipboard = async (spec) => {
     try {
       await navigator.clipboard.writeText(spec);
       toast.success("Specification copied to clipboard!");
     } catch (err) {
-      toast.error("Failed to copy to clipboard");
+      // Fallback for older browsers
+      try {
+        const textArea = document.createElement("textarea");
+        textArea.value = spec;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand("copy");
+        document.body.removeChild(textArea);
+        toast.success("Specification copied to clipboard!");
+      } catch (fallbackError) {
+        toast.error("Failed to copy to clipboard. Please copy manually.");
+      }
     }
   };
 
@@ -558,7 +777,11 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-blue-100 text-sm">Total</p>
-                        <p className="text-2xl font-bold">{stats.total}</p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">{stats.total}</p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">💬</div>
                     </div>
@@ -570,7 +793,13 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-green-100 text-sm">Processed</p>
-                        <p className="text-2xl font-bold">{stats.processed}</p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">
+                            {stats.processed}
+                          </p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">✅</div>
                     </div>
@@ -582,7 +811,11 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-orange-100 text-sm">Pending</p>
-                        <p className="text-2xl font-bold">{stats.pending}</p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">{stats.pending}</p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">⏳</div>
                     </div>
@@ -594,9 +827,13 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-red-100 text-sm">High Priority</p>
-                        <p className="text-2xl font-bold">
-                          {stats.highPriority}
-                        </p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">
+                            {stats.highPriority}
+                          </p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">🚨</div>
                     </div>
@@ -608,7 +845,13 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-purple-100 text-sm">AI Analyzed</p>
-                        <p className="text-2xl font-bold">{stats.aiAnalyzed}</p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">
+                            {stats.aiAnalyzed}
+                          </p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">🤖</div>
                     </div>
@@ -620,7 +863,11 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-pink-100 text-sm">Groups</p>
-                        <p className="text-2xl font-bold">{stats.groups}</p>
+                        {feedbackLoading ? (
+                          <div className="loading loading-spinner loading-sm"></div>
+                        ) : (
+                          <p className="text-2xl font-bold">{stats.groups}</p>
+                        )}
                       </div>
                       <div className="text-3xl opacity-80">🔗</div>
                     </div>
@@ -645,7 +892,14 @@ export default function Dashboard() {
                         </button>
                       </div>
 
-                      {feedbackList.length === 0 ? (
+                      {feedbackLoading ? (
+                        <div className="text-center py-8">
+                          <div className="loading loading-spinner loading-lg"></div>
+                          <p className="text-base-content/70 mt-4">
+                            Loading feedback...
+                          </p>
+                        </div>
+                      ) : feedbackList.length === 0 ? (
                         <div className="text-center py-8">
                           <div className="text-6xl mb-4">📝</div>
                           <p className="text-base-content/70">
