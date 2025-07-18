@@ -21,6 +21,7 @@ import {
   validateRequired,
   validateUUID,
 } from "../../../libs/validation/validators.js";
+import { feedbackDB } from "../../../libs/database/db-utils.js";
 
 
 // Helper function to update feedback clusters automatically
@@ -102,7 +103,7 @@ async function updateFeedbackClusters(supabase, userId) {
       );
     });
 
-    // Check if we already have valid clusters first
+    // Check if we already have valid clusters and whether they need updating
     console.log("🔍 Checking for existing clusters for user:", userId);
     const { data: existingClusters, error: checkError } = await supabase
       .from("feedback_clusters")
@@ -120,7 +121,46 @@ async function updateFeedbackClusters(supabase, userId) {
         })) || [],
     });
 
-    if (existingClusters && existingClusters.length > 0) {
+    // Determine if we should update clusters
+    let shouldUpdateClusters = false;
+    
+    if (!existingClusters || existingClusters.length === 0) {
+      console.log("🔍 No existing clusters found, will generate new ones");
+      shouldUpdateClusters = true;
+    } else {
+      // Check if the feedback count has changed since last clustering
+      const lastCluster = existingClusters[0];
+      const lastClusterFeedbackCount = lastCluster.total_feedback_count || 0;
+      const currentFeedbackCount = transformedFeedback.length;
+      
+      // Check if clusters are older than 24 hours
+      const lastClusterTime = new Date(lastCluster.created_at).getTime();
+      const now = new Date().getTime();
+      const hoursSinceLastCluster = (now - lastClusterTime) / (1000 * 60 * 60);
+      
+      console.log("🔍 Cluster freshness check:", {
+        lastClusterFeedbackCount,
+        currentFeedbackCount,
+        hoursSinceLastCluster: Math.round(hoursSinceLastCluster * 100) / 100,
+        feedbackCountChange: currentFeedbackCount - lastClusterFeedbackCount,
+      });
+      
+      // Update clusters if:
+      // 1. Feedback count has increased by 1 or more items
+      // 2. Clusters are older than 24 hours and feedback count has changed
+      const feedbackCountIncrease = currentFeedbackCount - lastClusterFeedbackCount;
+      
+      if (feedbackCountIncrease >= 1) {
+        console.log("🔄 Updating clusters due to new feedback");
+        shouldUpdateClusters = true;
+      } else if (hoursSinceLastCluster > 24 && feedbackCountIncrease > 0) {
+        console.log("🔄 Updating clusters due to age and feedback changes");
+        shouldUpdateClusters = true;
+      }
+    }
+    
+    // If clusters don't need updating, return them
+    if (!shouldUpdateClusters && existingClusters && existingClusters.length > 0) {
       console.log(`✅ Using existing ${existingClusters.length} clusters`);
       return {
         groups: existingClusters.map((cluster) => ({
@@ -140,7 +180,7 @@ async function updateFeedbackClusters(supabase, userId) {
       };
     }
 
-    console.log("🔍 No existing clusters found, generating new ones with AI");
+    console.log("🔍 Generating updated clusters with AI");
 
     const feedbackGroups = await Promise.race([
       groupSimilarFeedback(transformedFeedback, userId),
@@ -152,39 +192,89 @@ async function updateFeedbackClusters(supabase, userId) {
       return null;
     }
 
-    // Only create new clusters if none exist
-    // DON'T delete existing clusters to preserve cluster_id relationships
-
-    // Insert new clusters with validation using correct schema
-    const clusterInserts = feedbackGroups.groups
-      .filter((group) => group && group.theme) // Validate groups
-      .map((group) => ({
-        user_id: userId,
-        cluster_data: group, // Store the full cluster data as JSONB
-        feedback_ids: group.feedbackIds || [], // Array of feedback IDs
-        total_feedback_count: transformedFeedback.length, // Total feedback count when clustering was generated
-      }));
-
-    if (clusterInserts.length > 0) {
-      const { error: insertError } = await supabase
-        .from("feedback_clusters")
-        .insert(clusterInserts);
-
-      if (insertError) {
-        console.error("❌ Failed to insert new clusters:", {
-          error: insertError.message,
-          userId: userId,
-          code: insertError.code,
-          clusterCount: clusterInserts.length,
+    // Update existing clusters or create new ones
+    const newClusters = feedbackGroups.groups.filter((group) => group && group.theme);
+    
+    if (newClusters.length > 0) {
+      if (existingClusters && existingClusters.length > 0) {
+        console.log("🔄 Updating existing clusters with new feedback");
+        
+        // Update existing clusters with new feedback data
+        const updatePromises = newClusters.map(async (newCluster, index) => {
+          const existingCluster = existingClusters[index];
+          
+          if (existingCluster) {
+            // Update existing cluster
+            const { error: updateError } = await supabase
+              .from("feedback_clusters")
+              .update({
+                cluster_data: newCluster,
+                feedback_ids: newCluster.feedbackIds || [],
+                total_feedback_count: transformedFeedback.length,
+              })
+              .eq("id", existingCluster.id);
+              
+            if (updateError) {
+              console.error("❌ Failed to update cluster:", updateError.message);
+              return null;
+            }
+            
+            return { ...existingCluster, cluster_data: newCluster };
+          } else {
+            // Create new cluster if we have more new clusters than existing ones
+            const { data: newClusterData, error: insertError } = await supabase
+              .from("feedback_clusters")
+              .insert({
+                user_id: userId,
+                cluster_data: newCluster,
+                feedback_ids: newCluster.feedbackIds || [],
+                total_feedback_count: transformedFeedback.length,
+              })
+              .select()
+              .single();
+              
+            if (insertError) {
+              console.error("❌ Failed to create new cluster:", insertError.message);
+              return null;
+            }
+            
+            return newClusterData;
+          }
         });
-        return null;
-      }
+        
+        const updatedClusters = await Promise.all(updatePromises);
+        const successfulUpdates = updatedClusters.filter(Boolean);
+        
+        console.log(`✅ Successfully updated ${successfulUpdates.length} clusters`);
+      } else {
+        // Create all new clusters
+        console.log("🔄 Creating new clusters");
+        
+        const clusterInserts = newClusters.map((group) => ({
+          user_id: userId,
+          cluster_data: group,
+          feedback_ids: group.feedbackIds || [],
+          total_feedback_count: transformedFeedback.length,
+        }));
 
-      console.log(
-        `✅ Successfully updated ${clusterInserts.length} feedback clusters`
-      );
+        const { error: insertError } = await supabase
+          .from("feedback_clusters")
+          .insert(clusterInserts);
+
+        if (insertError) {
+          console.error("❌ Failed to insert new clusters:", {
+            error: insertError.message,
+            userId: userId,
+            code: insertError.code,
+            clusterCount: clusterInserts.length,
+          });
+          return null;
+        }
+
+        console.log(`✅ Successfully created ${clusterInserts.length} new clusters`);
+      }
     } else {
-      console.log("ℹ️ No valid clusters to insert");
+      console.log("ℹ️ No valid clusters to create or update");
     }
 
     // Also try to retrieve existing clusters from database for UI
@@ -287,55 +377,18 @@ export const GET = withErrorHandler(async (request) => {
     throw createAuthError();
   }
 
-  // Fetch feedback from database
-  const { data: feedbackData, error: fetchError } = await supabase
-    .from("raw_feedback")
-    .select("*")
-    .eq("user_id", user.id)
-    .order("created_at", { ascending: false });
+  // Get feedback using centralized database utilities
+  const feedbackResult = await feedbackDB.instance.getAllForUser(user.id);
+  const transformedFeedback = feedbackResult.data;
 
-  if (fetchError) {
-    await logErrorToMonitoring(fetchError, "GET /api/feedback", user.id);
-    throw createDatabaseError("Failed to fetch feedback", fetchError.message);
-  }
+  // Get feedback clusters from database
+  const feedbackGroups = await updateFeedbackClusters(supabase, user.id);
 
-    // Transform database data to match frontend format
-    const transformedFeedback = feedbackData.map((item) => ({
-      id: item.id,
-      title: item.metadata?.title || "Untitled",
-      content: item.content,
-      source: item.platform || "unknown",
-      priority: item.metadata?.priority || "medium",
-      category: item.metadata?.category || "other",
-      userEmail: item.metadata?.userEmail || null,
-      tags: item.metadata?.tags || [],
-      submittedAt: item.created_at,
-      processed: item.processed,
-      submittedBy: item.user_id,
-      metadata: item.metadata,
-      aiAnalysis: item.ai_analysis || null, // Include AI analysis if available
-    }));
-
-    // Get feedback clusters from database
-    const feedbackGroups = await updateFeedbackClusters(supabase, user.id);
-
-    // Calculate AI-powered statistics
-    const aiStats = {
-      totalAnalyzed: transformedFeedback.filter((f) => f.aiAnalysis).length,
-      sentimentDistribution: transformedFeedback.reduce((acc, f) => {
-        if (f.aiAnalysis?.sentiment) {
-          acc[f.aiAnalysis.sentiment] = (acc[f.aiAnalysis.sentiment] || 0) + 1;
-        }
-        return acc;
-      }, {}),
-      aiPriorityDistribution: transformedFeedback.reduce((acc, f) => {
-        if (f.aiAnalysis?.priority) {
-          acc[f.aiAnalysis.priority] = (acc[f.aiAnalysis.priority] || 0) + 1;
-        }
-        return acc;
-      }, {}),
-      topThemes: feedbackGroups?.groups?.map((g) => g.theme) || [],
-    };
+  // Get AI-powered statistics using centralized database utilities
+  const aiStats = await feedbackDB.instance.getStats(user.id);
+  
+  // Add top themes from clusters
+  aiStats.topThemes = feedbackGroups?.groups?.map((g) => g.theme) || [];
 
   return NextResponse.json({
     success: true,
@@ -435,17 +488,8 @@ export const POST = withErrorHandler(async (request) => {
     }
   }
 
-  // Save to database
-  const { data: insertedData, error: insertError } = await supabase
-    .from("raw_feedback")
-    .insert([feedbackData])
-    .select()
-    .single();
-
-  if (insertError) {
-    await logErrorToMonitoring(insertError, "POST /api/feedback - database insert", user.id);
-    throw createDatabaseError("Failed to create feedback", insertError.message);
-  }
+  // Save to database using centralized database utilities
+  const insertedData = await feedbackDB.instance.create("raw_feedback", feedbackData, "Create feedback");
 
     // Update feedback clusters after adding new feedback
     await updateFeedbackClusters(supabase, user.id);
@@ -644,23 +688,8 @@ export const PUT = withErrorHandler(async (request) => {
       updateData.metadata = body.metadata;
     }
 
-    // Update the feedback in database
-    const { data: updatedData, error: updateError } = await supabase
-      .from("raw_feedback")
-      .update(updateData)
-      .eq("id", body.id)
-      .eq("user_id", user.id) // Ensure user can only update their own feedback
-      .select()
-      .single();
-
-  if (updateError) {
-    await logErrorToMonitoring(updateError, "PUT /api/feedback", user.id);
-    throw createDatabaseError("Failed to update feedback", updateError.message);
-  }
-
-  if (!updatedData) {
-    throw createValidationError("Feedback not found or unauthorized");
-  }
+  // Update the feedback in database using centralized database utilities
+  const updatedData = await feedbackDB.instance.update("raw_feedback", body.id, user.id, updateData, "Update feedback");
 
     // Update feedback clusters after feedback was updated
     await updateFeedbackClusters(supabase, user.id);
@@ -706,17 +735,8 @@ export const DELETE = withErrorHandler(async (request) => {
 
   validateUUID(feedbackId, "Feedback ID");
 
-    // Delete the feedback from database
-    const { error: deleteError } = await supabase
-      .from("raw_feedback")
-      .delete()
-      .eq("id", feedbackId)
-      .eq("user_id", user.id); // Ensure user can only delete their own feedback
-
-  if (deleteError) {
-    await logErrorToMonitoring(deleteError, "DELETE /api/feedback", user.id);
-    throw createDatabaseError("Failed to delete feedback", deleteError.message);
-  }
+  // Delete the feedback from database using centralized database utilities
+  await feedbackDB.instance.delete("raw_feedback", feedbackId, user.id, "Delete feedback");
 
   // Update feedback clusters after feedback was deleted
   await updateFeedbackClusters(supabase, user.id);
