@@ -115,16 +115,15 @@ export async function POST(request) {
       return item.content || item.metadata?.title || "No content";
     });
 
-    console.log(`🎯 Generating specification for cluster: ${cluster.theme}`);
+    const clusterData = cluster.cluster_data || {};
+    const theme = clusterData.theme || "Untitled";
+
+    console.log(`🎯 Generating specification for cluster: ${theme}`);
     console.log(`📊 Using ${feedbackList.length} feedback items`);
 
     // Generate specification using AI
     try {
-      const generatedSpec = await generateSpec(
-        cluster.theme,
-        feedbackList,
-        user.id
-      );
+      const generatedSpec = await generateSpec(theme, feedbackList, user.id);
 
       if (!generatedSpec) {
         return NextResponse.json(
@@ -145,7 +144,7 @@ export async function POST(request) {
           .upsert({
             user_id: user.id,
             cluster_id: clusterId,
-            title: `Spec for ${cluster.theme}`,
+            title: `Spec for ${theme}`,
             content: generatedSpec,
           });
 
@@ -166,10 +165,13 @@ export async function POST(request) {
         spec: generatedSpec,
         cluster: {
           id: cluster.id,
-          theme: cluster.theme,
-          summary: cluster.summary,
-          priority: cluster.priority,
-          feedbackCount: cluster.feedback_count,
+          theme: theme,
+          summary:
+            clusterData.description ||
+            clusterData.suggestedAction ||
+            "No description",
+          priority: clusterData.severity || "medium",
+          feedbackCount: cluster.feedback_ids?.length || 0,
         },
         feedbackUsed: feedbackList.length,
         message: "Specification generated successfully",

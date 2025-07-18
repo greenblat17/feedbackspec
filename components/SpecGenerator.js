@@ -36,7 +36,7 @@ export default function SpecGenerator() {
         .from("feedback_clusters")
         .select("*")
         .eq("user_id", user.id)
-        .order("priority", { ascending: false });
+        .order("created_at", { ascending: false });
 
       if (fetchError) {
         throw fetchError;
@@ -149,40 +149,47 @@ export default function SpecGenerator() {
             </div>
           ) : (
             <div className="space-y-3">
-              {clusters.map((cluster) => (
-                <div key={cluster.id} className="card bg-base-200 shadow-xl">
-                  <div className="card-body">
-                    <div className="flex justify-between items-start mb-3">
-                      <h4 className="font-semibold text-lg">{cluster.theme}</h4>
-                      <div className="badge badge-primary">
-                        Priority: {cluster.priority}
-                      </div>
-                    </div>
-                    <p className="text-base-content/80 mb-3">
-                      {cluster.summary}
-                    </p>
-                    <div className="flex justify-between items-center">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-base-content/70">
-                          {cluster.feedback_count} feedback items
-                        </span>
-                        <div className="badge badge-sm badge-outline">
-                          {cluster.category || "General"}
+              {clusters.map((cluster) => {
+                const clusterData = cluster.cluster_data || {};
+                return (
+                  <div key={cluster.id} className="card bg-base-200 shadow-xl">
+                    <div className="card-body">
+                      <div className="flex justify-between items-start mb-3">
+                        <h4 className="font-semibold text-lg">
+                          {clusterData.theme || "Untitled"}
+                        </h4>
+                        <div className="badge badge-primary">
+                          {clusterData.severity || "medium"}
                         </div>
                       </div>
-                      <button
-                        onClick={() => generateSpec(cluster)}
-                        disabled={isGenerating}
-                        className="btn btn-primary btn-sm disabled:loading"
-                      >
-                        {isGenerating && selectedCluster?.id === cluster.id
-                          ? "Generating..."
-                          : "Generate Spec"}
-                      </button>
+                      <p className="text-base-content/80 mb-3">
+                        {clusterData.description ||
+                          clusterData.suggestedAction ||
+                          "No description"}
+                      </p>
+                      <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-base-content/70">
+                            {cluster.feedback_ids?.length || 0} feedback items
+                          </span>
+                          <div className="badge badge-sm badge-outline">
+                            {clusterData.category || "General"}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => generateSpec(cluster)}
+                          disabled={isGenerating}
+                          className="btn btn-primary btn-sm disabled:loading"
+                        >
+                          {isGenerating && selectedCluster?.id === cluster.id
+                            ? "Generating..."
+                            : "Generate Spec"}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

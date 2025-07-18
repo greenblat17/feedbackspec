@@ -119,7 +119,7 @@ export async function POST(request) {
           .upsert({
             user_id: user.id,
             cluster_id: null, // Individual specs don't have a cluster
-            title: `Spec for ${title}`,
+            title: `Spec for ${title} [feedback_id:${feedbackId}]`,
             content: generatedSpec,
           });
 

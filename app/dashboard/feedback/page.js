@@ -41,9 +41,10 @@ export default function FeedbackPage() {
     }
   };
 
-  // Fetch feedback from API
+  // Fetch feedback and existing specs from API
   useEffect(() => {
     fetchFeedback();
+    loadExistingSpecs();
   }, []);
 
   const fetchFeedback = async (preserveAiAnalysis = false) => {
@@ -118,6 +119,38 @@ export default function FeedbackPage() {
       }
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadExistingSpecs = async () => {
+    try {
+      const response = await fetch("/api/generate-individual-spec");
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success && result.data) {
+        const specsMap = {};
+
+        // Parse existing specs and map them to feedback IDs
+        result.data.forEach((spec) => {
+          // Extract feedback ID from title (format: "Spec for [title] [feedback_id:uuid]")
+          const feedbackIdMatch = spec.title.match(/\[feedback_id:([^\]]+)\]/);
+          if (feedbackIdMatch) {
+            const feedbackId = feedbackIdMatch[1];
+            specsMap[feedbackId] = spec.content;
+          }
+        });
+
+        setGeneratedSpecs(specsMap);
+        console.log("✅ Loaded existing specs:", Object.keys(specsMap).length);
+      }
+    } catch (error) {
+      console.error("Error loading existing specs:", error);
+      // Don't show error toast for this as it's not critical
     }
   };
 

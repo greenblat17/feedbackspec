@@ -319,17 +319,14 @@ async function updateFeedbackClusters(supabase, userId) {
       // Continue anyway - we'll try to insert new ones
     }
 
-    // Insert new clusters with validation
+    // Insert new clusters with validation using correct schema
     const clusterInserts = feedbackGroups.groups
       .filter((group) => group && group.theme) // Validate groups
       .map((group) => ({
         user_id: userId,
-        theme: String(group.theme).substring(0, 255) || "Untitled", // Limit length
-        priority: getPriorityNumber(group.severity),
-        summary: String(
-          group.description || group.suggestedAction || ""
-        ).substring(0, 1000), // Limit length
-        feedback_count: Math.max(0, group.feedbackIds?.length || 0),
+        cluster_data: group, // Store the full cluster data as JSONB
+        feedback_ids: group.feedbackIds || [], // Array of feedback IDs
+        total_feedback_count: transformedFeedback.length, // Total feedback count when clustering was generated
       }));
 
     if (clusterInserts.length > 0) {
@@ -354,7 +351,26 @@ async function updateFeedbackClusters(supabase, userId) {
       console.log("ℹ️ No valid clusters to insert");
     }
 
-    return feedbackGroups;
+    // Also try to retrieve existing clusters from database for UI
+    const { data: storedClusters, error: retrieveError } = await supabase
+      .from("feedback_clusters")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (retrieveError) {
+      console.error("❌ Failed to retrieve stored clusters:", {
+        error: retrieveError.message,
+        userId: userId,
+        code: retrieveError.code,
+      });
+    }
+
+    // Return both the AI response and the stored clusters
+    return {
+      ...feedbackGroups,
+      storedClusters: storedClusters || [],
+    };
   } catch (error) {
     console.error("❌ Critical error in feedback clustering:", {
       error: error.message,
@@ -385,23 +401,36 @@ async function updateFeedbackClusters(supabase, userId) {
       }
     }
 
-    return null;
-  }
-}
+    // Even if clustering fails, try to return existing clusters
+    try {
+      const { data: storedClusters } = await supabase
+        .from("feedback_clusters")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
 
-// Helper function to convert severity to priority number
-function getPriorityNumber(severity) {
-  switch (severity) {
-    case "critical":
-      return 4;
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    default:
-      return 2;
+      if (storedClusters && storedClusters.length > 0) {
+        return {
+          groups: storedClusters.map((cluster) => cluster.cluster_data),
+          storedClusters: storedClusters,
+          summary: {
+            totalGroups: storedClusters.length,
+            largestGroupSize: Math.max(
+              ...storedClusters.map((c) => c.feedback_ids?.length || 0)
+            ),
+            mostCommonTheme:
+              storedClusters[0]?.cluster_data?.theme || "Unknown",
+          },
+        };
+      }
+    } catch (fallbackError) {
+      console.error(
+        "❌ Failed to retrieve fallback clusters:",
+        fallbackError.message
+      );
+    }
+
+    return null;
   }
 }
 
