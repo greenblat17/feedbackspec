@@ -18,13 +18,42 @@ export default function FeedbackPage() {
     fetchFeedback();
   }, []);
 
-  const fetchFeedback = async () => {
+  const fetchFeedback = async (preserveAiAnalysis = false) => {
     try {
       const response = await fetch("/api/feedback");
       const result = await response.json();
 
       if (result.success) {
-        setFeedbackList(result.data);
+        if (preserveAiAnalysis) {
+          // Smart merge: preserve existing AI analysis if server doesn't have it
+          const mergedData = result.data.map((serverItem) => {
+            const existingItem = feedbackList.find(
+              (item) => item.id === serverItem.id
+            );
+            if (
+              existingItem &&
+              existingItem.aiAnalysis &&
+              !serverItem.aiAnalysis
+            ) {
+              return { ...serverItem, aiAnalysis: existingItem.aiAnalysis };
+            }
+            // Check if AI analysis was just completed
+            if (
+              existingItem &&
+              !existingItem.aiAnalysis &&
+              serverItem.aiAnalysis
+            ) {
+              toast.dismiss("ai-analysis");
+              toast.success(
+                `🤖 AI analysis completed! Detected ${serverItem.aiAnalysis.sentiment} sentiment.`
+              );
+            }
+            return serverItem;
+          });
+          setFeedbackList(mergedData);
+        } else {
+          setFeedbackList(result.data);
+        }
         setFeedbackGroups(result.feedbackGroups);
         setAiStats(result.aiStats);
         console.log("🤖 AI Stats:", result.aiStats);
@@ -62,12 +91,18 @@ export default function FeedbackPage() {
       );
     } else {
       toast.success("Feedback submitted successfully!");
+      // Show AI analysis loading message
+      toast.loading("🤖 AI analysis in progress...", {
+        duration: 5000,
+        id: "ai-analysis",
+      });
     }
 
     // Refresh data to get updated grouping
+    // Give more time for AI analysis to be saved on server
     setTimeout(() => {
-      fetchFeedback();
-    }, 1000);
+      fetchFeedback(true); // Preserve AI analysis if server doesn't have it yet
+    }, 3000); // Increased from 1 second to 3 seconds
 
     console.log("New feedback submitted:", feedbackData);
   };

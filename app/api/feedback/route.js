@@ -215,6 +215,87 @@ function validateFeedbackData(data) {
   return errors;
 }
 
+// Helper function to update feedback clusters automatically
+async function updateFeedbackClusters(supabase, userId) {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+
+  try {
+    // Get all feedback for this user
+    const { data: feedbackData, error: fetchError } = await supabase
+      .from("raw_feedback")
+      .select("*")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false });
+
+    if (fetchError || !feedbackData || feedbackData.length < 2) {
+      return null;
+    }
+
+    // Transform feedback data
+    const transformedFeedback = feedbackData.map((item) => ({
+      id: item.id,
+      title: item.metadata?.title || "Untitled",
+      content: item.content,
+      source: item.platform || "unknown",
+      priority: item.metadata?.priority || "medium",
+      category: item.metadata?.category || "other",
+      tags: item.metadata?.tags || [],
+      aiAnalysis: item.ai_analysis || null,
+    }));
+
+    console.log("🔗 Updating feedback clusters...");
+
+    // Generate new clusters using AI
+    const feedbackGroups = await groupSimilarFeedback(
+      transformedFeedback,
+      userId
+    );
+
+    if (feedbackGroups && feedbackGroups.groups) {
+      // Clear existing clusters for this user
+      await supabase.from("feedback_clusters").delete().eq("user_id", userId);
+
+      // Insert new clusters
+      const clusterInserts = feedbackGroups.groups.map((group) => ({
+        user_id: userId,
+        theme: group.theme || "Untitled",
+        priority: getPriorityNumber(group.severity),
+        summary: group.description || group.suggestedAction || "",
+        feedback_count: group.feedbackIds?.length || 0,
+      }));
+
+      if (clusterInserts.length > 0) {
+        await supabase.from("feedback_clusters").insert(clusterInserts);
+        console.log(`✅ Updated ${clusterInserts.length} feedback clusters`);
+      }
+
+      return feedbackGroups;
+    }
+  } catch (error) {
+    console.error("Warning: Feedback clustering failed:", error.message);
+  }
+
+  return null;
+}
+
+// Helper function to convert severity to priority number
+function getPriorityNumber(severity) {
+  switch (severity) {
+    case "critical":
+      return 4;
+    case "high":
+      return 3;
+    case "medium":
+      return 2;
+    case "low":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
 // GET /api/feedback - Get all feedback for the authenticated user
 export async function GET(request) {
   try {
@@ -266,27 +347,8 @@ export async function GET(request) {
       aiAnalysis: item.ai_analysis || null, // Include AI analysis if available
     }));
 
-    // Group similar feedback if AI is available and there are multiple feedback items
-    let feedbackGroups = null;
-    if (process.env.OPENAI_API_KEY && transformedFeedback.length > 1) {
-      console.log("🔗 Grouping similar feedback...");
-
-      try {
-        feedbackGroups = await groupSimilarFeedback(
-          transformedFeedback,
-          user.id
-        );
-
-        if (feedbackGroups) {
-          console.log(
-            `✅ Grouped feedback into ${feedbackGroups.summary.totalGroups} groups`
-          );
-        }
-      } catch (groupError) {
-        console.error("Warning: Feedback grouping failed:", groupError.message);
-        // Continue without grouping
-      }
-    }
+    // Get feedback clusters from database
+    const feedbackGroups = await updateFeedbackClusters(supabase, user.id);
 
     // Calculate AI-powered statistics
     const aiStats = {
@@ -465,6 +527,9 @@ export async function POST(request) {
       );
     }
 
+    // Update feedback clusters after adding new feedback
+    await updateFeedbackClusters(supabase, user.id);
+
     // Perform AI Analysis on the feedback
     let aiAnalysis = null;
     if (process.env.OPENAI_API_KEY && insertedData.content) {
@@ -484,7 +549,6 @@ export async function POST(request) {
             await supabase
               .from("raw_feedback")
               .update({
-                processed: true,
                 ai_analysis: aiAnalysis,
               })
               .eq("id", insertedData.id);
@@ -513,7 +577,7 @@ export async function POST(request) {
       userEmail: insertedData.metadata?.userEmail || null,
       tags: insertedData.metadata?.tags || [],
       submittedAt: insertedData.created_at,
-      processed: insertedData.processed || (aiAnalysis ? true : false),
+      processed: insertedData.processed,
       submittedBy: insertedData.user_id,
       metadata: insertedData.metadata,
       aiAnalysis: aiAnalysis, // Include AI analysis in response
@@ -625,6 +689,9 @@ export async function PUT(request) {
       );
     }
 
+    // Update feedback clusters after feedback was updated
+    await updateFeedbackClusters(supabase, user.id);
+
     // Transform the response to match frontend format
     const responseData = {
       id: updatedData.id,
@@ -702,6 +769,9 @@ export async function DELETE(request) {
         { status: 500 }
       );
     }
+
+    // Update feedback clusters after feedback was deleted
+    await updateFeedbackClusters(supabase, user.id);
 
     return NextResponse.json({
       success: true,
