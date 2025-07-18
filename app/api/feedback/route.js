@@ -7,7 +7,7 @@ import {
   analyzeFeedback,
   findDuplicateFeedback,
   groupSimilarFeedback,
-} from "../../../libs/gpt.js";
+} from "../../../libs/ai/index.js";
 import {
   withErrorHandler,
   createValidationError,
@@ -26,7 +26,8 @@ import { feedbackDB } from "../../../libs/database/db-utils.js";
 
 // Helper function to update feedback clusters automatically
 async function updateFeedbackClusters(supabase, userId) {
-  if (!process.env.OPENAI_API_KEY) {
+  const { isAIConfigured } = await import("../../../libs/ai/index.js");
+  if (!isAIConfigured()) {
     console.log("⚠️ OpenAI API key not configured - skipping clustering");
     return null;
   }
@@ -466,7 +467,8 @@ export const POST = withErrorHandler(async (request) => {
 
   // Check for duplicate feedback before saving
   let duplicateCheck = null;
-  if (process.env.OPENAI_API_KEY) {
+  const { isAIConfigured } = await import("../../../libs/ai/index.js");
+  if (isAIConfigured()) {
     try {
       // Get existing feedback to check for duplicates
       const { data: existingFeedback } = await supabase
@@ -496,7 +498,7 @@ export const POST = withErrorHandler(async (request) => {
 
     // Perform AI Analysis on the feedback
     let aiAnalysis = null;
-    if (process.env.OPENAI_API_KEY && insertedData.content) {
+    if (isAIConfigured() && insertedData.content) {
       console.log("🧠 Performing AI analysis on feedback...");
 
       try {
@@ -607,7 +609,7 @@ export const POST = withErrorHandler(async (request) => {
         // Continue anyway - feedback was saved successfully, just without AI analysis
       }
     } else {
-      if (!process.env.OPENAI_API_KEY) {
+      if (!isAIConfigured()) {
         console.log("ℹ️ OpenAI API key not configured - skipping AI analysis");
       } else if (!insertedData.content) {
         console.warn("⚠️ No content provided - skipping AI analysis");
@@ -642,7 +644,7 @@ export const POST = withErrorHandler(async (request) => {
     if (aiAnalysis) {
       response.message = "Feedback created and analyzed successfully";
       response.aiAnalysisStatus = "completed";
-    } else if (process.env.OPENAI_API_KEY) {
+    } else if (isAIConfigured()) {
       response.aiAnalysisStatus = "failed";
     } else {
       response.aiAnalysisStatus = "disabled";

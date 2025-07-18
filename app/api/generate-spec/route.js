@@ -3,7 +3,7 @@ import {
   createAuthenticatedSupabaseClient,
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
-import { generateSpec } from "../../../libs/gpt.js";
+import { generateSpec } from "../../../libs/ai/index.js";
 import {
   withErrorHandler,
   createAuthError,
@@ -29,7 +29,8 @@ export const POST = withErrorHandler(async (request) => {
   }
 
   // Check if OpenAI API key is configured
-  if (!process.env.OPENAI_API_KEY) {
+  const { isAIConfigured } = await import("../../../libs/ai/index.js");
+  if (!isAIConfigured()) {
     throw createExternalServiceError("openai", "OpenAI API key is not configured for spec generation");
   }
 
@@ -38,8 +39,13 @@ export const POST = withErrorHandler(async (request) => {
 
     // Handle direct cluster spec generation (new format)
     if (theme && feedbackList && clusterId) {
-      // Validate the spec generation data
-      validateSpecGeneration({ theme, feedbackList, clusterId });
+      // Validate the cluster spec generation data
+      validateRequired({ theme, feedbackList, clusterId }, ["theme", "feedbackList", "clusterId"]);
+      validateUUID(clusterId, "Cluster ID");
+      
+      if (!Array.isArray(feedbackList) || feedbackList.length === 0) {
+        throw createValidationError("Feedback list must be a non-empty array");
+      }
       
       console.log(`🎯 Generating specification for cluster theme: ${theme}`);
       console.log(`📊 Using ${feedbackList.length} feedback items`);

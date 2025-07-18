@@ -3,7 +3,7 @@ import {
   createAuthenticatedSupabaseClient,
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
-import { generateImplementationSpec } from "../../../libs/gpt.js";
+import { generateImplementationSpec } from "../../../libs/ai/index.js";
 import {
   withErrorHandler,
   createAuthError,
@@ -29,7 +29,8 @@ export const POST = withErrorHandler(async (request) => {
   }
 
   // Check if OpenAI API key is configured
-  if (!process.env.OPENAI_API_KEY) {
+  const { isAIConfigured } = await import("../../../libs/ai/index.js");
+  if (!isAIConfigured()) {
     throw createExternalServiceError("openai", "OpenAI API key is not configured for spec generation");
   }
 
