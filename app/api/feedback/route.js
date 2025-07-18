@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import {
+  createAuthenticatedSupabaseClient,
+  getAuthenticatedUser,
+} from "../../../libs/auth/server-auth.js";
 import {
   analyzeFeedback,
   findDuplicateFeedback,
@@ -75,22 +77,6 @@ const VALIDATION_RULES = {
   },
 };
 
-// Helper function to create authenticated Supabase client
-function createAuthenticatedClient() {
-  const cookieStore = cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value;
-        },
-      },
-    }
-  );
-}
 
 // Input sanitization helper
 function sanitizeInput(input) {
@@ -473,15 +459,10 @@ async function updateFeedbackClusters(supabase, userId) {
 // GET /api/feedback - Get all feedback for the authenticated user
 export async function GET(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -565,15 +546,10 @@ export async function GET(request) {
 // POST /api/feedback - Create new feedback
 export async function POST(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -885,15 +861,10 @@ export async function POST(request) {
 // PUT /api/feedback - Update existing feedback
 export async function PUT(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -987,15 +958,10 @@ export async function PUT(request) {
 // DELETE /api/feedback - Delete feedback
 export async function DELETE(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

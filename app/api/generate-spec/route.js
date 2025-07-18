@@ -1,37 +1,18 @@
 import { NextResponse } from "next/server";
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import {
+  createAuthenticatedSupabaseClient,
+  getAuthenticatedUser,
+} from "../../../libs/auth/server-auth.js";
 import { generateSpec } from "../../../libs/gpt.js";
 
-// Helper function to create authenticated Supabase client
-function createAuthenticatedClient() {
-  const cookieStore = cookies();
-
-  return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        get(name) {
-          return cookieStore.get(name)?.value;
-        },
-      },
-    }
-  );
-}
 
 // POST /api/generate-spec - Generate specification from feedback cluster
 export async function POST(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -286,15 +267,10 @@ export async function POST(request) {
 // GET /api/generate-spec - Get previously generated specs for a user
 export async function GET(request) {
   try {
-    const supabase = createAuthenticatedClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    // Get authenticated user
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 

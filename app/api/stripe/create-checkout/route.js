@@ -1,5 +1,8 @@
 import { createCheckout } from "@/libs/stripe";
-import { createClient } from "@/libs/supabase/server";
+import {
+  createAuthenticatedSupabaseClient,
+  getAuthenticatedUser,
+} from "../../../libs/auth/server-auth.js";
 import { NextResponse } from "next/server";
 
 // This function is used to create a Stripe Checkout Session (one-time payment or subscription)
@@ -29,11 +32,15 @@ export async function POST(req) {
   }
 
   try {
-    const supabase = createClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json(
+        { error: "You must be logged in to create a checkout session" },
+        { status: 401 }
+      );
+    }
 
     const { priceId, mode, successUrl, cancelUrl } = body;
 

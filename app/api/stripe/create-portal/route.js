@@ -1,24 +1,23 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/libs/supabase/server";
+import {
+  createAuthenticatedSupabaseClient,
+  getAuthenticatedUser,
+} from "../../../libs/auth/server-auth.js";
 import { createCustomerPortal } from "@/libs/stripe";
 
 export async function POST(req) {
   try {
-    const supabase = createClient();
+    const supabase = createAuthenticatedSupabaseClient();
+    const user = await getAuthenticatedUser();
 
-    const body = await req.json();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    // User who are not logged in can't make a purchase
     if (!user) {
       return NextResponse.json(
         { error: "You must be logged in to view billing information." },
         { status: 401 }
       );
-    } else if (!body.returnUrl) {
+    }
+
+    const body = await req.json(); else if (!body.returnUrl) {
       return NextResponse.json(
         { error: "Return URL is required" },
         { status: 400 }

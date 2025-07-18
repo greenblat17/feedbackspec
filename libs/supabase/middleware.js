@@ -8,6 +8,7 @@ import {
   getRedirectUrl,
   debugLog,
 } from "@/libs/middleware-config";
+import { createAuthenticatedSupabaseClient } from "@/libs/auth/server-auth";
 
 export async function updateSession(request) {
   const url = request.nextUrl.clone();
@@ -103,53 +104,27 @@ export async function updateSession(request) {
 
 // Enhanced helper functions with better error handling
 export async function requireAuth(request) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Read-only for this helper
-        },
-      },
+  try {
+    const supabase = createAuthenticatedSupabaseClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+
+    if (error || !user) {
+      throw new Error("Authentication required");
     }
-  );
 
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  if (error || !user) {
+    return user;
+  } catch (error) {
     throw new Error("Authentication required");
   }
-
-  return user;
 }
 
 export async function getAuthUser(request) {
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll();
-        },
-        setAll() {
-          // Read-only for this helper
-        },
-      },
-    }
-  );
-
-  const {
-    data: { user },
-    error,
-  } = await supabase.auth.getUser();
-
-  return { user, error };
+  try {
+    const supabase = createAuthenticatedSupabaseClient();
+    const { data: { user }, error } = await supabase.auth.getUser();
+    
+    return { user, error };
+  } catch (error) {
+    return { user: null, error };
+  }
 }
