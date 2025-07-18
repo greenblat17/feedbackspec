@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import FeedbackForm from "@/components/FeedbackForm";
 import toast from "react-hot-toast";
+import ReactMarkdown from "react-markdown";
 
 export default function FeedbackPage() {
   const [feedbackList, setFeedbackList] = useState([]);
@@ -14,6 +15,10 @@ export default function FeedbackPage() {
   const [viewMode, setViewMode] = useState("list"); // 'list' or 'groups'
   const [processingId, setProcessingId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [generatingSpecId, setGeneratingSpecId] = useState(null);
+  const [generatedSpecs, setGeneratedSpecs] = useState({});
+  const [showSpecModal, setShowSpecModal] = useState(false);
+  const [currentSpec, setCurrentSpec] = useState(null);
 
   // Helper function to handle API errors consistently
   const handleApiError = (error, context = "operation") => {
@@ -256,6 +261,67 @@ export default function FeedbackPage() {
       handleApiError(error, "deleting feedback");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleGenerateSpec = async (feedback) => {
+    if (!feedback) {
+      toast.error("Invalid feedback");
+      return;
+    }
+
+    if (generatingSpecId === feedback.id) {
+      return; // Already generating
+    }
+
+    setGeneratingSpecId(feedback.id);
+
+    try {
+      const response = await fetch("/api/generate-individual-spec", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ feedbackId: feedback.id }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.success) {
+        setGeneratedSpecs((prev) => ({
+          ...prev,
+          [feedback.id]: result.spec,
+        }));
+        setCurrentSpec({
+          feedbackId: feedback.id,
+          feedbackTitle: feedback.title,
+          spec: result.spec,
+        });
+        setShowSpecModal(true);
+        toast.success("Specification generated successfully!");
+      } else {
+        const errorMessage =
+          result.message || result.error || "Unknown error occurred";
+        console.error("API Error:", errorMessage);
+        toast.error(`Failed to generate spec: ${errorMessage}`);
+      }
+    } catch (error) {
+      handleApiError(error, "generating specification");
+    } finally {
+      setGeneratingSpecId(null);
+    }
+  };
+
+  const copySpecToClipboard = async (spec) => {
+    try {
+      await navigator.clipboard.writeText(spec);
+      toast.success("Specification copied to clipboard!");
+    } catch (err) {
+      toast.error("Failed to copy to clipboard");
     }
   };
 
@@ -750,6 +816,46 @@ export default function FeedbackPage() {
                             </div>
                           )}
                         </div>
+                        <div className="flex flex-col gap-1 ml-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleGenerateSpec(feedback);
+                            }}
+                            disabled={generatingSpecId === feedback.id}
+                            className={`btn btn-xs btn-primary ${
+                              generatingSpecId === feedback.id ? "loading" : ""
+                            }`}
+                            title="Generate specification for this feedback"
+                          >
+                            {generatingSpecId === feedback.id ? (
+                              "Generating..."
+                            ) : (
+                              <>
+                                <span className="text-xs">🎯</span>
+                                Spec
+                              </>
+                            )}
+                          </button>
+                          {generatedSpecs[feedback.id] && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCurrentSpec({
+                                  feedbackId: feedback.id,
+                                  feedbackTitle: feedback.title,
+                                  spec: generatedSpecs[feedback.id],
+                                });
+                                setShowSpecModal(true);
+                              }}
+                              className="btn btn-xs btn-outline"
+                              title="View generated specification"
+                            >
+                              <span className="text-xs">📋</span>
+                              View
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -946,6 +1052,40 @@ export default function FeedbackPage() {
                   <div className="divider"></div>
 
                   <div className="space-y-2">
+                    <button
+                      onClick={() => handleGenerateSpec(selectedFeedback)}
+                      disabled={generatingSpecId === selectedFeedback.id}
+                      className={`btn btn-primary btn-sm w-full ${
+                        generatingSpecId === selectedFeedback.id
+                          ? "loading"
+                          : ""
+                      }`}
+                    >
+                      {generatingSpecId === selectedFeedback.id ? (
+                        "Generating..."
+                      ) : (
+                        <>
+                          <span className="text-sm">🎯</span>
+                          Generate Spec
+                        </>
+                      )}
+                    </button>
+                    {generatedSpecs[selectedFeedback.id] && (
+                      <button
+                        onClick={() => {
+                          setCurrentSpec({
+                            feedbackId: selectedFeedback.id,
+                            feedbackTitle: selectedFeedback.title,
+                            spec: generatedSpecs[selectedFeedback.id],
+                          });
+                          setShowSpecModal(true);
+                        }}
+                        className="btn btn-outline btn-sm w-full"
+                      >
+                        <span className="text-sm">📋</span>
+                        View Generated Spec
+                      </button>
+                    )}
                     {!selectedFeedback.processed && (
                       <button
                         onClick={() =>
@@ -1005,6 +1145,71 @@ export default function FeedbackPage() {
               onSubmit={handleFeedbackSubmit}
               onCancel={() => setShowForm(false)}
             />
+          </div>
+        </div>
+      )}
+
+      {/* Spec Modal */}
+      {showSpecModal && currentSpec && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="card bg-base-200 shadow-xl">
+              <div className="card-body">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="card-title text-xl">
+                    Generated Specification
+                  </h2>
+                  <button
+                    onClick={() => setShowSpecModal(false)}
+                    className="btn btn-sm btn-ghost"
+                  >
+                    <span className="text-lg">✕</span>
+                  </button>
+                </div>
+
+                <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-medium">Feedback:</span>
+                    <span className="badge badge-outline">
+                      {currentSpec.feedbackTitle}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-semibold">Specification</h3>
+                  <button
+                    onClick={() => copySpecToClipboard(currentSpec.spec)}
+                    className="btn btn-sm btn-outline"
+                  >
+                    <span className="text-lg">📋</span>
+                    Copy
+                  </button>
+                </div>
+
+                <div className="bg-base-300 p-4 rounded-lg max-h-96 overflow-y-auto">
+                  <div className="prose prose-sm max-w-none">
+                    <ReactMarkdown>{currentSpec.spec}</ReactMarkdown>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 mt-4">
+                  <button
+                    onClick={() => copySpecToClipboard(currentSpec.spec)}
+                    className="btn btn-primary"
+                  >
+                    <span className="text-lg">📋</span>
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={() => setShowSpecModal(false)}
+                    className="btn btn-outline"
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

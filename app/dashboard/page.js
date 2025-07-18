@@ -302,7 +302,10 @@ export default function Dashboard() {
                     <span className="text-lg">💬</span>
                     Manage Feedback
                   </button>
-                  <button className="btn btn-outline btn-sm w-full">
+                  <button
+                    onClick={() => router.push("/dashboard/specs")}
+                    className="btn btn-outline btn-sm w-full"
+                  >
                     <span className="text-lg">🎯</span>
                     Generate Spec
                   </button>
