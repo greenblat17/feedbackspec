@@ -4,28 +4,29 @@ import {
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
 import { generateSpec } from "../../../libs/gpt.js";
+import {
+  withErrorHandler,
+  createAuthError,
+  createValidationError,
+  createDatabaseError,
+  createExternalServiceError,
+  logErrorToMonitoring,
+} from "../../../libs/errors/error-handler.js";
 
 
 // POST /api/generate-spec - Generate specification from feedback cluster
-export async function POST(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const POST = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "AI service not configured",
-          message: "OpenAI API key is not configured for spec generation",
-        },
-        { status: 503 }
-      );
-    }
+  // Check if OpenAI API key is configured
+  if (!process.env.OPENAI_API_KEY) {
+    throw createExternalServiceError("openai", "OpenAI API key is not configured for spec generation");
+  }
 
     const body = await request.json();
     const { clusterId, theme, feedbackList } = body;
@@ -40,13 +41,7 @@ export async function POST(request) {
         const generatedSpec = await generateSpec(theme, feedbackList, user.id);
 
         if (!generatedSpec) {
-          return NextResponse.json(
-            {
-              error: "Failed to generate specification",
-              message: "AI service returned empty response",
-            },
-            { status: 500 }
-          );
+          throw createExternalServiceError("openai", "AI service returned empty response");
         }
 
         console.log("✅ Specification generated successfully");
@@ -97,25 +92,15 @@ export async function POST(request) {
           message: "Specification generated successfully",
         });
       } catch (specError) {
-        console.error("Error generating specification:", specError);
-        return NextResponse.json(
-          {
-            error: "Failed to generate specification",
-            message: "AI service encountered an error",
-            details: specError.message,
-          },
-          { status: 500 }
-        );
+        await logErrorToMonitoring(specError, "POST /api/generate-spec - AI generation (direct)", user.id);
+        throw createExternalServiceError("openai", "AI service encountered an error", specError.message);
       }
     }
 
-    // Original format - fetch cluster from database
-    if (!clusterId) {
-      return NextResponse.json(
-        { error: "Cluster ID is required" },
-        { status: 400 }
-      );
-    }
+  // Original format - fetch cluster from database
+  if (!clusterId) {
+    throw createValidationError("Cluster ID is required");
+  }
 
     // Get the feedback cluster from database
     const { data: cluster, error: clusterError } = await supabase
@@ -125,23 +110,14 @@ export async function POST(request) {
       .eq("user_id", user.id)
       .single();
 
-    if (clusterError) {
-      console.error("Error fetching cluster:", clusterError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch cluster",
-          message: clusterError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (clusterError) {
+    await logErrorToMonitoring(clusterError, "POST /api/generate-spec - fetch cluster", user.id);
+    throw createDatabaseError("Failed to fetch cluster", clusterError.message);
+  }
 
-    if (!cluster) {
-      return NextResponse.json(
-        { error: "Cluster not found or unauthorized" },
-        { status: 404 }
-      );
-    }
+  if (!cluster) {
+    throw createValidationError("Cluster not found or unauthorized");
+  }
 
     // Get feedback associated with this cluster
     // Note: This assumes there's a way to link feedback to clusters
@@ -153,23 +129,14 @@ export async function POST(request) {
       .order("created_at", { ascending: false })
       .limit(20); // Limit to recent feedback
 
-    if (feedbackError) {
-      console.error("Error fetching feedback:", feedbackError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch feedback",
-          message: feedbackError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (feedbackError) {
+    await logErrorToMonitoring(feedbackError, "POST /api/generate-spec - fetch feedback", user.id);
+    throw createDatabaseError("Failed to fetch feedback", feedbackError.message);
+  }
 
-    if (!feedbackData || feedbackData.length === 0) {
-      return NextResponse.json(
-        { error: "No feedback found for this cluster" },
-        { status: 404 }
-      );
-    }
+  if (!feedbackData || feedbackData.length === 0) {
+    throw createValidationError("No feedback found for this cluster");
+  }
 
     // Transform feedback data to text array
     const clusterFeedbackList = feedbackData.map((item) => {
@@ -190,15 +157,9 @@ export async function POST(request) {
         user.id
       );
 
-      if (!generatedSpec) {
-        return NextResponse.json(
-          {
-            error: "Failed to generate specification",
-            message: "AI service returned empty response",
-          },
-          { status: 500 }
-        );
-      }
+    if (!generatedSpec) {
+      throw createExternalServiceError("openai", "AI service returned empty response");
+    }
 
       console.log("✅ Specification generated successfully");
 
@@ -241,38 +202,20 @@ export async function POST(request) {
         feedbackUsed: clusterFeedbackList.length,
         message: "Specification generated successfully",
       });
-    } catch (specError) {
-      console.error("Error generating specification:", specError);
-      return NextResponse.json(
-        {
-          error: "Failed to generate specification",
-          message: "AI service encountered an error",
-          details: specError.message,
-        },
-        { status: 500 }
-      );
-    }
-  } catch (error) {
-    console.error("[Generate Spec API Error]", error);
-    return NextResponse.json(
-      {
-        error: "Internal server error",
-        message: error.message,
-      },
-      { status: 500 }
-    );
+  } catch (specError) {
+    await logErrorToMonitoring(specError, "POST /api/generate-spec - AI generation", user.id);
+    throw createExternalServiceError("openai", "AI service encountered an error", specError.message);
   }
-}
+});
 
 // GET /api/generate-spec - Get previously generated specs for a user
-export async function GET(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const GET = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
     const url = new URL(request.url);
     const clusterId = url.searchParams.get("clusterId");
@@ -289,33 +232,17 @@ export async function GET(request) {
 
     const { data: specs, error: fetchError } = await query;
 
-    if (fetchError) {
-      console.error("Error fetching generated specs:", fetchError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch generated specs",
-          message: fetchError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (fetchError) {
+    await logErrorToMonitoring(fetchError, "GET /api/generate-spec", user.id);
+    throw createDatabaseError("Failed to fetch generated specs", fetchError.message);
+  }
 
     console.log("📋 Fetched specs from database:", specs?.length || 0);
     console.log("🔍 Cluster IDs found:", specs?.map((s) => s.cluster_id) || []);
 
-    return NextResponse.json({
-      success: true,
-      data: specs || [],
-      message: "Generated specs retrieved successfully",
-    });
-  } catch (error) {
-    console.error("[Get Generated Specs API Error]", error);
-    return NextResponse.json(
-      {
-        error: "Internal server error",
-        message: error.message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json({
+    success: true,
+    data: specs || [],
+    message: "Generated specs retrieved successfully",
+  });
+});

@@ -8,6 +8,14 @@ import {
   findDuplicateFeedback,
   groupSimilarFeedback,
 } from "../../../libs/gpt.js";
+import {
+  withErrorHandler,
+  createValidationError,
+  createAuthError,
+  createDatabaseError,
+  createExternalServiceError,
+  logErrorToMonitoring,
+} from "../../../libs/errors/error-handler.js";
 
 // Validation rules and constants
 const VALIDATION_RULES = {
@@ -457,33 +465,25 @@ async function updateFeedbackClusters(supabase, userId) {
 }
 
 // GET /api/feedback - Get all feedback for the authenticated user
-export async function GET(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const GET = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    // Fetch feedback from database
-    const { data: feedbackData, error: fetchError } = await supabase
-      .from("raw_feedback")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false });
+  // Fetch feedback from database
+  const { data: feedbackData, error: fetchError } = await supabase
+    .from("raw_feedback")
+    .select("*")
+    .eq("user_id", user.id)
+    .order("created_at", { ascending: false });
 
-    if (fetchError) {
-      console.error("Error fetching feedback:", fetchError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to fetch feedback",
-          message: fetchError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (fetchError) {
+    await logErrorToMonitoring(fetchError, "GET /api/feedback", user.id);
+    throw createDatabaseError("Failed to fetch feedback", fetchError.message);
+  }
 
     // Transform database data to match frontend format
     const transformedFeedback = feedbackData.map((item) => ({
@@ -523,40 +523,28 @@ export async function GET(request) {
       topThemes: feedbackGroups?.groups?.map((g) => g.theme) || [],
     };
 
-    return NextResponse.json({
-      success: true,
-      data: transformedFeedback,
-      feedbackGroups: feedbackGroups,
-      aiStats: aiStats,
-      message: "Feedback retrieved successfully",
-    });
-  } catch (error) {
-    console.error("[Feedback API Error]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to retrieve feedback",
-        message: error.message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json({
+    success: true,
+    data: transformedFeedback,
+    feedbackGroups: feedbackGroups,
+    aiStats: aiStats,
+    message: "Feedback retrieved successfully",
+  });
+});
 
 // POST /api/feedback - Create new feedback
-export async function POST(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const POST = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    const body = await request.json();
+  const body = await request.json();
 
-    // Debug log the received data
-    console.log("Received feedback data:", body);
+  // Debug log the received data
+  console.log("Received feedback data:", body);
 
     // Sanitize string inputs
     const sanitizedData = {
@@ -570,18 +558,11 @@ export async function POST(request) {
       metadata: body.metadata,
     };
 
-    // Validate the data using our comprehensive validation system
-    const validationErrors = validateFeedbackData(sanitizedData);
-    if (validationErrors.length > 0) {
-      return NextResponse.json(
-        {
-          error: "Validation failed",
-          details: validationErrors,
-          message: validationErrors.join(", "),
-        },
-        { status: 400 }
-      );
-    }
+  // Validate the data using our comprehensive validation system
+  const validationErrors = validateFeedbackData(sanitizedData);
+  if (validationErrors.length > 0) {
+    throw createValidationError(validationErrors.join(", "), validationErrors);
+  }
 
     // Process tags and metadata with additional sanitization
     let processedTags = [];
@@ -665,17 +646,10 @@ export async function POST(request) {
       .select()
       .single();
 
-    if (insertError) {
-      console.error("Error inserting feedback:", insertError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to create feedback",
-          message: insertError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (insertError) {
+    await logErrorToMonitoring(insertError, "POST /api/feedback - database insert", user.id);
+    throw createDatabaseError("Failed to create feedback", insertError.message);
+  }
 
     // Update feedback clusters after adding new feedback
     await updateFeedbackClusters(supabase, user.id);
@@ -844,38 +818,23 @@ export async function POST(request) {
       };
     }
 
-    return NextResponse.json(response, { status: 201 });
-  } catch (error) {
-    console.error("[Feedback Creation Error]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to create feedback",
-        message: error.message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json(response, { status: 201 });
+});
 
 // PUT /api/feedback - Update existing feedback
-export async function PUT(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const PUT = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    const body = await request.json();
+  const body = await request.json();
 
-    if (!body.id) {
-      return NextResponse.json(
-        { error: "Feedback ID is required" },
-        { status: 400 }
-      );
-    }
+  if (!body.id) {
+    throw createValidationError("Feedback ID is required");
+  }
 
     // Prepare update data
     const updateData = {};
@@ -899,24 +858,14 @@ export async function PUT(request) {
       .select()
       .single();
 
-    if (updateError) {
-      console.error("Error updating feedback:", updateError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to update feedback",
-          message: updateError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (updateError) {
+    await logErrorToMonitoring(updateError, "PUT /api/feedback", user.id);
+    throw createDatabaseError("Failed to update feedback", updateError.message);
+  }
 
-    if (!updatedData) {
-      return NextResponse.json(
-        { error: "Feedback not found or unauthorized" },
-        { status: 404 }
-      );
-    }
+  if (!updatedData) {
+    throw createValidationError("Feedback not found or unauthorized");
+  }
 
     // Update feedback clusters after feedback was updated
     await updateFeedbackClusters(supabase, user.id);
@@ -937,43 +886,28 @@ export async function PUT(request) {
       metadata: updatedData.metadata,
     };
 
-    return NextResponse.json({
-      success: true,
-      data: responseData,
-      message: "Feedback updated successfully",
-    });
-  } catch (error) {
-    console.error("[Feedback Update Error]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to update feedback",
-        message: error.message,
-      },
-      { status: 500 }
-    );
-  }
-}
+  return NextResponse.json({
+    success: true,
+    data: responseData,
+    message: "Feedback updated successfully",
+  });
+});
 
 // DELETE /api/feedback - Delete feedback
-export async function DELETE(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const DELETE = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    const url = new URL(request.url);
-    const feedbackId = url.searchParams.get("id");
+  const url = new URL(request.url);
+  const feedbackId = url.searchParams.get("id");
 
-    if (!feedbackId) {
-      return NextResponse.json(
-        { error: "Feedback ID is required" },
-        { status: 400 }
-      );
-    }
+  if (!feedbackId) {
+    throw createValidationError("Feedback ID is required");
+  }
 
     // Delete the feedback from database
     const { error: deleteError } = await supabase
@@ -982,34 +916,16 @@ export async function DELETE(request) {
       .eq("id", feedbackId)
       .eq("user_id", user.id); // Ensure user can only delete their own feedback
 
-    if (deleteError) {
-      console.error("Error deleting feedback:", deleteError);
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to delete feedback",
-          message: deleteError.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    // Update feedback clusters after feedback was deleted
-    await updateFeedbackClusters(supabase, user.id);
-
-    return NextResponse.json({
-      success: true,
-      message: "Feedback deleted successfully",
-    });
-  } catch (error) {
-    console.error("[Feedback Delete Error]", error);
-    return NextResponse.json(
-      {
-        success: false,
-        error: "Failed to delete feedback",
-        message: error.message,
-      },
-      { status: 500 }
-    );
+  if (deleteError) {
+    await logErrorToMonitoring(deleteError, "DELETE /api/feedback", user.id);
+    throw createDatabaseError("Failed to delete feedback", deleteError.message);
   }
-}
+
+  // Update feedback clusters after feedback was deleted
+  await updateFeedbackClusters(supabase, user.id);
+
+  return NextResponse.json({
+    success: true,
+    message: "Feedback deleted successfully",
+  });
+});

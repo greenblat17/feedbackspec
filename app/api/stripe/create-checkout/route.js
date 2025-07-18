@@ -4,52 +4,52 @@ import {
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
 import { NextResponse } from "next/server";
+import {
+  withErrorHandler,
+  createAuthError,
+  createValidationError,
+  createDatabaseError,
+  createExternalServiceError,
+  logErrorToMonitoring,
+} from "../../../libs/errors/error-handler.js";
 
 // This function is used to create a Stripe Checkout Session (one-time payment or subscription)
 // It's called by the <ButtonCheckout /> component
 // Users must be authenticated. It will prefill the Checkout data with their email and/or credit card (if any)
-export async function POST(req) {
+export const POST = withErrorHandler(async (req) => {
   const body = await req.json();
 
   if (!body.priceId) {
-    return NextResponse.json(
-      { error: "Price ID is required" },
-      { status: 400 }
-    );
+    throw createValidationError("Price ID is required");
   } else if (!body.successUrl || !body.cancelUrl) {
-    return NextResponse.json(
-      { error: "Success and cancel URLs are required" },
-      { status: 400 }
-    );
+    throw createValidationError("Success and cancel URLs are required");
   } else if (!body.mode) {
-    return NextResponse.json(
-      {
-        error:
-          "Mode is required (either 'payment' for one-time payments or 'subscription' for recurring subscription)",
-      },
-      { status: 400 }
+    throw createValidationError(
+      "Mode is required (either 'payment' for one-time payments or 'subscription' for recurring subscription)"
     );
   }
 
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    throw createAuthError("You must be logged in to create a checkout session");
+  }
+
+  const { priceId, mode, successUrl, cancelUrl } = body;
+
+  const { data, error: profileError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user?.id)
+    .single();
+
+  if (profileError) {
+    await logErrorToMonitoring(profileError, "POST /api/stripe/create-checkout - profile fetch", user.id);
+    throw createDatabaseError("Failed to fetch user profile", profileError.message);
+  }
+
   try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "You must be logged in to create a checkout session" },
-        { status: 401 }
-      );
-    }
-
-    const { priceId, mode, successUrl, cancelUrl } = body;
-
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user?.id)
-      .single();
-
     const stripeSessionURL = await createCheckout({
       priceId,
       mode,
@@ -67,8 +67,8 @@ export async function POST(req) {
     });
 
     return NextResponse.json({ url: stripeSessionURL });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: e?.message }, { status: 500 });
+  } catch (stripeError) {
+    await logErrorToMonitoring(stripeError, "POST /api/stripe/create-checkout - stripe", user.id);
+    throw createExternalServiceError("stripe", "Failed to create checkout session", stripeError.message);
   }
-}
+});

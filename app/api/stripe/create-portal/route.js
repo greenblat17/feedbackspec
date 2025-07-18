@@ -4,41 +4,45 @@ import {
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
 import { createCustomerPortal } from "@/libs/stripe";
+import {
+  withErrorHandler,
+  createAuthError,
+  createValidationError,
+  createDatabaseError,
+  createExternalServiceError,
+  logErrorToMonitoring,
+} from "../../../libs/errors/error-handler.js";
 
-export async function POST(req) {
+export const POST = withErrorHandler(async (req) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
+
+  if (!user) {
+    throw createAuthError("You must be logged in to view billing information.");
+  }
+
+  const body = await req.json();
+
+  if (!body.returnUrl) {
+    throw createValidationError("Return URL is required");
+  }
+
+  const { data, error: profileError } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user?.id)
+    .single();
+
+  if (profileError) {
+    await logErrorToMonitoring(profileError, "POST /api/stripe/create-portal - profile fetch", user.id);
+    throw createDatabaseError("Failed to fetch user profile", profileError.message);
+  }
+
+  if (!data?.customer_id) {
+    throw createValidationError("You don't have a billing account yet. Make a purchase first.");
+  }
+
   try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
-
-    if (!user) {
-      return NextResponse.json(
-        { error: "You must be logged in to view billing information." },
-        { status: 401 }
-      );
-    }
-
-    const body = await req.json(); else if (!body.returnUrl) {
-      return NextResponse.json(
-        { error: "Return URL is required" },
-        { status: 400 }
-      );
-    }
-
-    const { data } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user?.id)
-      .single();
-
-    if (!data?.customer_id) {
-      return NextResponse.json(
-        {
-          error: "You don't have a billing account yet. Make a purchase first.",
-        },
-        { status: 400 }
-      );
-    }
-
     const stripePortalUrl = await createCustomerPortal({
       customerId: data.customer_id,
       returnUrl: body.returnUrl,
@@ -47,8 +51,8 @@ export async function POST(req) {
     return NextResponse.json({
       url: stripePortalUrl,
     });
-  } catch (e) {
-    console.error(e);
-    return NextResponse.json({ error: e?.message }, { status: 500 });
+  } catch (stripeError) {
+    await logErrorToMonitoring(stripeError, "POST /api/stripe/create-portal - stripe", user.id);
+    throw createExternalServiceError("stripe", "Failed to create customer portal", stripeError.message);
   }
-}
+});

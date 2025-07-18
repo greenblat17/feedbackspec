@@ -4,38 +4,36 @@ import {
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
 import { generateImplementationSpec } from "../../../libs/gpt.js";
+import {
+  withErrorHandler,
+  createAuthError,
+  createValidationError,
+  createDatabaseError,
+  createExternalServiceError,
+  logErrorToMonitoring,
+} from "../../../libs/errors/error-handler.js";
 
 
 // POST /api/generate-individual-spec - Generate specification from individual feedback
-export async function POST(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const POST = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
-    // Check if OpenAI API key is configured
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        {
-          error: "AI service not configured",
-          message: "OpenAI API key is not configured for spec generation",
-        },
-        { status: 503 }
-      );
-    }
+  // Check if OpenAI API key is configured
+  if (!process.env.OPENAI_API_KEY) {
+    throw createExternalServiceError("openai", "OpenAI API key is not configured for spec generation");
+  }
 
     const body = await request.json();
     const { feedbackId } = body;
 
-    if (!feedbackId) {
-      return NextResponse.json(
-        { error: "Feedback ID is required" },
-        { status: 400 }
-      );
-    }
+  if (!feedbackId) {
+    throw createValidationError("Feedback ID is required");
+  }
 
     // Get the feedback item from database
     const { data: feedback, error: feedbackError } = await supabase
@@ -45,23 +43,14 @@ export async function POST(request) {
       .eq("user_id", user.id)
       .single();
 
-    if (feedbackError) {
-      console.error("Error fetching feedback:", feedbackError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch feedback",
-          message: feedbackError.message,
-        },
-        { status: 500 }
-      );
-    }
+  if (feedbackError) {
+    await logErrorToMonitoring(feedbackError, "POST /api/generate-individual-spec - fetch feedback", user.id);
+    throw createDatabaseError("Failed to fetch feedback", feedbackError.message);
+  }
 
-    if (!feedback) {
-      return NextResponse.json(
-        { error: "Feedback not found or unauthorized" },
-        { status: 404 }
-      );
-    }
+  if (!feedback) {
+    throw createValidationError("Feedback not found or unauthorized");
+  }
 
     // Extract relevant information for spec generation
     const issueType = feedback.metadata?.category || "general";
@@ -81,15 +70,9 @@ export async function POST(request) {
         user.id
       );
 
-      if (!generatedSpec) {
-        return NextResponse.json(
-          {
-            error: "Failed to generate specification",
-            message: "AI service returned empty response",
-          },
-          { status: 500 }
-        );
-      }
+    if (!generatedSpec) {
+      throw createExternalServiceError("openai", "AI service returned empty response");
+    }
 
       console.log("✅ Specification generated successfully");
 
@@ -131,38 +114,20 @@ export async function POST(request) {
         },
         message: "Specification generated successfully",
       });
-    } catch (specError) {
-      console.error("Error generating specification:", specError);
-      return NextResponse.json(
-        {
-          error: "Failed to generate specification",
-          message: "AI service encountered an error",
-          details: specError.message,
-        },
-        { status: 500 }
-      );
-    }
-  } catch (error) {
-    console.error("[Generate Individual Spec API Error]", error);
-    return NextResponse.json(
-      {
-        error: "Internal server error",
-        message: error.message,
-      },
-      { status: 500 }
-    );
+  } catch (specError) {
+    await logErrorToMonitoring(specError, "POST /api/generate-individual-spec - AI generation", user.id);
+    throw createExternalServiceError("openai", "AI service encountered an error", specError.message);
   }
-}
+});
 
 // GET /api/generate-individual-spec - Get previously generated specs for individual feedback
-export async function GET(request) {
-  try {
-    const supabase = createAuthenticatedSupabaseClient();
-    const user = await getAuthenticatedUser();
+export const GET = withErrorHandler(async (request) => {
+  const supabase = createAuthenticatedSupabaseClient();
+  const user = await getAuthenticatedUser();
 
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!user) {
+    throw createAuthError();
+  }
 
     const url = new URL(request.url);
     const feedbackId = url.searchParams.get("feedbackId");
@@ -181,30 +146,14 @@ export async function GET(request) {
 
     const { data: specs, error: fetchError } = await query;
 
-    if (fetchError) {
-      console.error("Error fetching generated specs:", fetchError);
-      return NextResponse.json(
-        {
-          error: "Failed to fetch generated specs",
-          message: fetchError.message,
-        },
-        { status: 500 }
-      );
-    }
-
-    return NextResponse.json({
-      success: true,
-      data: specs || [],
-      message: "Generated specs retrieved successfully",
-    });
-  } catch (error) {
-    console.error("[Get Generated Individual Specs API Error]", error);
-    return NextResponse.json(
-      {
-        error: "Internal server error",
-        message: error.message,
-      },
-      { status: 500 }
-    );
+  if (fetchError) {
+    await logErrorToMonitoring(fetchError, "GET /api/generate-individual-spec", user.id);
+    throw createDatabaseError("Failed to fetch generated specs", fetchError.message);
   }
-}
+
+  return NextResponse.json({
+    success: true,
+    data: specs || [],
+    message: "Generated specs retrieved successfully",
+  });
+});
