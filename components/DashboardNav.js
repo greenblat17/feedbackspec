@@ -21,8 +21,8 @@ export default function DashboardNav() {
     {
       name: "Feedback",
       href: "/dashboard/feedback",
-      icon: "💬",
-      description: "Manage feedback items",
+      icon: "📝",
+      description: "Add and manage feedback",
     },
     {
       name: "Analytics",

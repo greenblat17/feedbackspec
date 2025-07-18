@@ -7,6 +7,7 @@ export const middlewareConfig = {
     "/profile",
     "/settings",
     "/api/user/**", // Protected API routes
+    "/api/feedback", // Feedback API routes
   ],
 
   // Routes that should redirect authenticated users away (login, register, etc.)

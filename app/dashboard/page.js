@@ -1,7 +1,11 @@
+"use client";
+
 import ButtonAccount from "@/components/ButtonAccount";
 import UserProfile from "@/components/UserProfile";
 import config from "@/config";
-import { createClient } from "@/libs/supabase/server";
+import { createClient } from "@/libs/supabase/client";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 
 export const dynamic = "force-dynamic";
 
@@ -62,11 +66,23 @@ const mockIntegrations = [
   { name: "Slack", status: "disconnected", lastSync: null },
 ];
 
-export default async function Dashboard() {
+export default function Dashboard() {
   const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const router = useRouter();
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUser(user);
+      setLoading(false);
+    };
+
+    getUser();
+  }, []);
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -108,6 +124,17 @@ export default async function Dashboard() {
         return "🔗";
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="loading loading-spinner loading-lg"></div>
+          <p className="mt-4 text-base-content/70">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 space-y-8 lg:pl-8">
@@ -261,17 +288,27 @@ export default async function Dashboard() {
               <div className="card-body">
                 <h3 className="card-title text-lg">Quick Actions</h3>
                 <div className="space-y-3">
-                  <button className="btn btn-primary btn-sm w-full">
+                  <button
+                    onClick={() => router.push("/dashboard/feedback")}
+                    className="btn btn-primary btn-sm w-full"
+                  >
+                    <span className="text-lg">📝</span>
+                    Add Feedback
+                  </button>
+                  <button
+                    onClick={() => router.push("/dashboard/feedback")}
+                    className="btn btn-outline btn-sm w-full"
+                  >
+                    <span className="text-lg">💬</span>
+                    Manage Feedback
+                  </button>
+                  <button className="btn btn-outline btn-sm w-full">
                     <span className="text-lg">🎯</span>
-                    Generate New Spec
+                    Generate Spec
                   </button>
                   <button className="btn btn-outline btn-sm w-full">
                     <span className="text-lg">📊</span>
                     View Analytics
-                  </button>
-                  <button className="btn btn-outline btn-sm w-full">
-                    <span className="text-lg">🔍</span>
-                    Search Feedback
                   </button>
                   <button className="btn btn-outline btn-sm w-full">
                     <span className="text-lg">📤</span>

@@ -73,6 +73,16 @@ export async function updateSession(request) {
     pathname: url.pathname,
   });
 
+  // Handle protected API routes FIRST (before general protected routes)
+  if (
+    url.pathname.startsWith("/api/") &&
+    isProtectedRoute(url.pathname) &&
+    !user
+  ) {
+    debugLog("Unauthorized API access");
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // Handle protected routes
   if (isProtected && !user) {
     debugLog("Redirecting unauthenticated user to auth");
@@ -85,16 +95,6 @@ export async function updateSession(request) {
     debugLog("Redirecting authenticated user away from auth route");
     const redirectUrl = getRedirectUrl(true, url.pathname, request);
     return NextResponse.redirect(redirectUrl);
-  }
-
-  // Handle protected API routes
-  if (
-    url.pathname.startsWith("/api/") &&
-    isProtectedRoute(url.pathname) &&
-    !user
-  ) {
-    debugLog("Unauthorized API access");
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   debugLog("Request allowed");
