@@ -12,6 +12,10 @@ import {
   createExternalServiceError,
   logErrorToMonitoring,
 } from "../../../libs/errors/error-handler.js";
+import {
+  validateStripeRequest,
+  validateRequired,
+} from "../../../libs/validation/validators.js";
 
 export const POST = withErrorHandler(async (req) => {
   const supabase = createAuthenticatedSupabaseClient();
@@ -23,9 +27,8 @@ export const POST = withErrorHandler(async (req) => {
 
   const body = await req.json();
 
-  if (!body.returnUrl) {
-    throw createValidationError("Return URL is required");
-  }
+  // Validate Stripe portal request
+  validateStripeRequest(body, "portal");
 
   const { data, error: profileError } = await supabase
     .from("profiles")

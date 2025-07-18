@@ -12,6 +12,10 @@ import {
   createExternalServiceError,
   logErrorToMonitoring,
 } from "../../../libs/errors/error-handler.js";
+import {
+  validateStripeRequest,
+  validateRequired,
+} from "../../../libs/validation/validators.js";
 
 // This function is used to create a Stripe Checkout Session (one-time payment or subscription)
 // It's called by the <ButtonCheckout /> component
@@ -19,15 +23,8 @@ import {
 export const POST = withErrorHandler(async (req) => {
   const body = await req.json();
 
-  if (!body.priceId) {
-    throw createValidationError("Price ID is required");
-  } else if (!body.successUrl || !body.cancelUrl) {
-    throw createValidationError("Success and cancel URLs are required");
-  } else if (!body.mode) {
-    throw createValidationError(
-      "Mode is required (either 'payment' for one-time payments or 'subscription' for recurring subscription)"
-    );
-  }
+  // Validate Stripe checkout request
+  validateStripeRequest(body, "checkout");
 
   const supabase = createAuthenticatedSupabaseClient();
   const user = await getAuthenticatedUser();

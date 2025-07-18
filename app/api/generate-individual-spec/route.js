@@ -12,6 +12,11 @@ import {
   createExternalServiceError,
   logErrorToMonitoring,
 } from "../../../libs/errors/error-handler.js";
+import {
+  validateSpecGeneration,
+  validateRequired,
+  validateUUID,
+} from "../../../libs/validation/validators.js";
 
 
 // POST /api/generate-individual-spec - Generate specification from individual feedback
@@ -31,9 +36,8 @@ export const POST = withErrorHandler(async (request) => {
     const body = await request.json();
     const { feedbackId } = body;
 
-  if (!feedbackId) {
-    throw createValidationError("Feedback ID is required");
-  }
+  validateRequired(body, ["feedbackId"]);
+  validateUUID(feedbackId, "Feedback ID");
 
     // Get the feedback item from database
     const { data: feedback, error: feedbackError } = await supabase

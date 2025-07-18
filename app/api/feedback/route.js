@@ -16,198 +16,12 @@ import {
   createExternalServiceError,
   logErrorToMonitoring,
 } from "../../../libs/errors/error-handler.js";
+import {
+  validateFeedback,
+  validateRequired,
+  validateUUID,
+} from "../../../libs/validation/validators.js";
 
-// Validation rules and constants
-const VALIDATION_RULES = {
-  title: {
-    required: true,
-    minLength: 3,
-    maxLength: 200,
-    type: "string",
-  },
-  content: {
-    required: true,
-    minLength: 10,
-    maxLength: 2000,
-    type: "string",
-  },
-  source: {
-    required: true,
-    type: "string",
-    enum: [
-      "manual",
-      "email",
-      "twitter",
-      "discord",
-      "slack",
-      "github",
-      "website",
-      "survey",
-      "support",
-      "other",
-    ],
-  },
-  priority: {
-    required: true,
-    type: "string",
-    enum: ["low", "medium", "high", "urgent"],
-  },
-  category: {
-    required: true,
-    type: "string",
-    enum: [
-      "feature",
-      "bug",
-      "improvement",
-      "complaint",
-      "praise",
-      "question",
-      "suggestion",
-      "other",
-    ],
-  },
-  userEmail: {
-    required: false,
-    type: "string",
-    pattern: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
-    maxLength: 254,
-  },
-  tags: {
-    required: false,
-    type: "array",
-    maxItems: 10,
-    itemMaxLength: 50,
-  },
-  metadata: {
-    required: false,
-    type: "object",
-    maxSize: 1000, // JSON string size limit
-  },
-};
-
-
-// Input sanitization helper
-function sanitizeInput(input) {
-  if (typeof input !== "string") return input;
-
-  // Basic XSS protection - remove script tags and dangerous attributes
-  return input
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-    .replace(/javascript:/gi, "")
-    .replace(/on\w+="[^"]*"/gi, "")
-    .trim();
-}
-
-// Validation helper functions
-function validateField(fieldName, value, rule) {
-  const errors = [];
-
-  // Required field validation
-  if (
-    rule.required &&
-    (value === null || value === undefined || value === "")
-  ) {
-    errors.push(`${fieldName} is required`);
-    return errors;
-  }
-
-  // Skip other validations if field is empty and not required
-  if (
-    !rule.required &&
-    (value === null || value === undefined || value === "")
-  ) {
-    return errors;
-  }
-
-  // Type validation
-  if (rule.type === "string" && typeof value !== "string") {
-    errors.push(`${fieldName} must be a string`);
-  } else if (rule.type === "array" && !Array.isArray(value)) {
-    errors.push(`${fieldName} must be an array`);
-  } else if (
-    rule.type === "object" &&
-    (typeof value !== "object" || Array.isArray(value))
-  ) {
-    errors.push(`${fieldName} must be an object`);
-  }
-
-  // Length validation for strings
-  if (rule.type === "string" && typeof value === "string") {
-    if (rule.minLength && value.length < rule.minLength) {
-      errors.push(
-        `${fieldName} must be at least ${rule.minLength} characters long`
-      );
-    }
-    if (rule.maxLength && value.length > rule.maxLength) {
-      errors.push(`${fieldName} cannot exceed ${rule.maxLength} characters`);
-    }
-  }
-
-  // Array validation
-  if (rule.type === "array" && Array.isArray(value)) {
-    if (rule.maxItems && value.length > rule.maxItems) {
-      errors.push(`${fieldName} cannot have more than ${rule.maxItems} items`);
-    }
-    if (rule.itemMaxLength) {
-      const invalidItems = value.filter(
-        (item) => typeof item === "string" && item.length > rule.itemMaxLength
-      );
-      if (invalidItems.length > 0) {
-        errors.push(
-          `${fieldName} items cannot exceed ${rule.itemMaxLength} characters`
-        );
-      }
-    }
-  }
-
-  // Enum validation
-  if (rule.enum && !rule.enum.includes(value)) {
-    errors.push(`${fieldName} must be one of: ${rule.enum.join(", ")}`);
-  }
-
-  // Pattern validation (for email)
-  if (rule.pattern && typeof value === "string" && !rule.pattern.test(value)) {
-    errors.push(`${fieldName} has invalid format`);
-  }
-
-  // Object size validation (for metadata)
-  if (rule.type === "object" && rule.maxSize && typeof value === "object") {
-    const jsonSize = JSON.stringify(value).length;
-    if (jsonSize > rule.maxSize) {
-      errors.push(`${fieldName} is too large (max ${rule.maxSize} characters)`);
-    }
-  }
-
-  return errors;
-}
-
-// Main validation function
-function validateFeedbackData(data) {
-  const errors = [];
-
-  // Validate each field according to rules
-  Object.entries(VALIDATION_RULES).forEach(([fieldName, rule]) => {
-    const fieldErrors = validateField(fieldName, data[fieldName], rule);
-    errors.push(...fieldErrors);
-  });
-
-  // Additional custom validations
-  if (data.tags && Array.isArray(data.tags)) {
-    // Check for duplicate tags
-    const uniqueTags = [...new Set(data.tags)];
-    if (uniqueTags.length !== data.tags.length) {
-      errors.push("Tags must be unique");
-    }
-
-    // Check for empty tags
-    const emptyTags = data.tags.filter((tag) => !tag || tag.trim() === "");
-    if (emptyTags.length > 0) {
-      errors.push("Tags cannot be empty");
-    }
-  }
-
-  return errors;
-}
 
 // Helper function to update feedback clusters automatically
 async function updateFeedbackClusters(supabase, userId) {
@@ -546,105 +360,87 @@ export const POST = withErrorHandler(async (request) => {
   // Debug log the received data
   console.log("Received feedback data:", body);
 
-    // Sanitize string inputs
-    const sanitizedData = {
-      title: sanitizeInput(body.title),
-      content: sanitizeInput(body.content),
-      source: body.source,
-      priority: body.priority,
-      category: body.category,
-      userEmail: body.userEmail ? sanitizeInput(body.userEmail) : null,
-      tags: body.tags,
-      metadata: body.metadata,
-    };
+  // Validate and sanitize the data using centralized validation
+  const sanitizedData = validateFeedback(body);
 
-  // Validate the data using our comprehensive validation system
-  const validationErrors = validateFeedbackData(sanitizedData);
-  if (validationErrors.length > 0) {
-    throw createValidationError(validationErrors.join(", "), validationErrors);
+  // Process tags (already sanitized by validateFeedback)
+  let processedTags = [];
+  if (sanitizedData.tags) {
+    if (Array.isArray(sanitizedData.tags)) {
+      processedTags = sanitizedData.tags
+        .filter((tag) => tag && typeof tag === "string")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag);
+    } else if (
+      typeof sanitizedData.tags === "string" &&
+      sanitizedData.tags.trim()
+    ) {
+      processedTags = sanitizedData.tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag);
+    }
   }
 
-    // Process tags and metadata with additional sanitization
-    let processedTags = [];
-    if (sanitizedData.tags) {
-      if (Array.isArray(sanitizedData.tags)) {
-        processedTags = sanitizedData.tags
-          .filter((tag) => tag && typeof tag === "string")
-          .map((tag) => sanitizeInput(tag.trim()))
-          .filter((tag) => tag);
-      } else if (
-        typeof sanitizedData.tags === "string" &&
-        sanitizedData.tags.trim()
-      ) {
-        processedTags = sanitizedData.tags
-          .split(",")
-          .map((tag) => sanitizeInput(tag.trim()))
-          .filter((tag) => tag);
-      }
-    }
-
-    let processedMetadata = null;
-    if (sanitizedData.metadata) {
-      if (typeof sanitizedData.metadata === "string") {
-        try {
-          processedMetadata = JSON.parse(sanitizedData.metadata);
-        } catch (e) {
-          return NextResponse.json(
-            { error: "Invalid JSON in metadata field" },
-            { status: 400 }
-          );
-        }
-      } else {
-        processedMetadata = sanitizedData.metadata;
-      }
-    }
-
-    // Prepare data for database
-    const feedbackData = {
-      user_id: user.id,
-      platform: sanitizedData.source,
-      content: sanitizedData.content.trim(),
-      metadata: {
-        title: sanitizedData.title.trim(),
-        priority: sanitizedData.priority,
-        category: sanitizedData.category,
-        userEmail: sanitizedData.userEmail || null,
-        tags: processedTags,
-        ...processedMetadata, // Include any additional metadata from the form
-      },
-      processed: false,
-    };
-
-    // Check for duplicate feedback before saving
-    let duplicateCheck = null;
-    if (process.env.OPENAI_API_KEY) {
+  let processedMetadata = null;
+  if (sanitizedData.metadata) {
+    if (typeof sanitizedData.metadata === "string") {
       try {
-        // Get existing feedback to check for duplicates
-        const { data: existingFeedback } = await supabase
-          .from("raw_feedback")
-          .select("id, content")
-          .eq("user_id", user.id)
-          .limit(20); // Check against recent feedback only
-
-        if (existingFeedback && existingFeedback.length > 0) {
-          duplicateCheck = await findDuplicateFeedback(
-            sanitizedData.content,
-            existingFeedback,
-            user.id
-          );
-        }
-      } catch (error) {
-        console.error("Warning: Duplicate check failed:", error.message);
-        // Continue anyway
+        processedMetadata = JSON.parse(sanitizedData.metadata);
+      } catch (e) {
+        throw createValidationError("Invalid JSON in metadata field");
       }
+    } else {
+      processedMetadata = sanitizedData.metadata;
     }
+  }
 
-    // Save to database
-    const { data: insertedData, error: insertError } = await supabase
-      .from("raw_feedback")
-      .insert([feedbackData])
-      .select()
-      .single();
+  // Prepare data for database
+  const feedbackData = {
+    user_id: user.id,
+    platform: sanitizedData.source,
+    content: sanitizedData.content.trim(),
+    metadata: {
+      title: sanitizedData.title.trim(),
+      priority: sanitizedData.priority,
+      category: sanitizedData.category,
+      userEmail: sanitizedData.userEmail || null,
+      tags: processedTags,
+      ...processedMetadata, // Include any additional metadata from the form
+    },
+    processed: false,
+  };
+
+  // Check for duplicate feedback before saving
+  let duplicateCheck = null;
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      // Get existing feedback to check for duplicates
+      const { data: existingFeedback } = await supabase
+        .from("raw_feedback")
+        .select("id, content")
+        .eq("user_id", user.id)
+        .limit(20); // Check against recent feedback only
+
+      if (existingFeedback && existingFeedback.length > 0) {
+        duplicateCheck = await findDuplicateFeedback(
+          sanitizedData.content,
+          existingFeedback,
+          user.id
+        );
+      }
+    } catch (error) {
+      console.error("Warning: Duplicate check failed:", error.message);
+      // Continue anyway
+    }
+  }
+
+  // Save to database
+  const { data: insertedData, error: insertError } = await supabase
+    .from("raw_feedback")
+    .insert([feedbackData])
+    .select()
+    .single();
 
   if (insertError) {
     await logErrorToMonitoring(insertError, "POST /api/feedback - database insert", user.id);
@@ -832,9 +628,8 @@ export const PUT = withErrorHandler(async (request) => {
 
   const body = await request.json();
 
-  if (!body.id) {
-    throw createValidationError("Feedback ID is required");
-  }
+  validateRequired(body, ["id"]);
+  validateUUID(body.id, "Feedback ID");
 
     // Prepare update data
     const updateData = {};
@@ -908,6 +703,8 @@ export const DELETE = withErrorHandler(async (request) => {
   if (!feedbackId) {
     throw createValidationError("Feedback ID is required");
   }
+
+  validateUUID(feedbackId, "Feedback ID");
 
     // Delete the feedback from database
     const { error: deleteError } = await supabase

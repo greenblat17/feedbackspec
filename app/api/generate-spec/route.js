@@ -12,6 +12,11 @@ import {
   createExternalServiceError,
   logErrorToMonitoring,
 } from "../../../libs/errors/error-handler.js";
+import {
+  validateSpecGeneration,
+  validateRequired,
+  validateUUID,
+} from "../../../libs/validation/validators.js";
 
 
 // POST /api/generate-spec - Generate specification from feedback cluster
@@ -33,6 +38,9 @@ export const POST = withErrorHandler(async (request) => {
 
     // Handle direct cluster spec generation (new format)
     if (theme && feedbackList && clusterId) {
+      // Validate the spec generation data
+      validateSpecGeneration({ theme, feedbackList, clusterId });
+      
       console.log(`🎯 Generating specification for cluster theme: ${theme}`);
       console.log(`📊 Using ${feedbackList.length} feedback items`);
 
@@ -101,6 +109,8 @@ export const POST = withErrorHandler(async (request) => {
   if (!clusterId) {
     throw createValidationError("Cluster ID is required");
   }
+
+  validateUUID(clusterId, "Cluster ID");
 
     // Get the feedback cluster from database
     const { data: cluster, error: clusterError } = await supabase
