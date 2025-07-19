@@ -39,22 +39,26 @@ export async function GET(request) {
     // Сохраняем интеграцию в таблицу integrations
     const { error: insertError } = await supabase
       .from('integrations')
-      .insert({
+      .upsert({
         user_id: user.id,
         platform: 'gmail',
+        status: 'connected',
         access_token: tokens.access_token,
         refresh_token: tokens.refresh_token,
-        token_type: tokens.token_type || 'Bearer',
-        scope: tokens.scope || '',
-        expires_at: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null,
         config: {
           default_folder: 'INBOX',
           auto_sync: true,
-          sync_frequency: 'hourly'
+          sync_frequency: 'hourly',
+          keywords: ['feedback', 'bug', 'feature request'],
+          token_type: tokens.token_type || 'Bearer',
+          scope: tokens.scope || '',
+          expires_at: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : null
         },
-        is_active: true,
+        last_sync: null,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'user_id,platform'
       });
     
     if (insertError) {

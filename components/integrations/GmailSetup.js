@@ -6,9 +6,8 @@ import { createClient } from '@/libs/supabase/client';
 export default function GmailSetup() {
   const [gmailIntegration, setGmailIntegration] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [connecting, setConnecting] = useState(false);
   
-  // Новые состояния компонента
+  // Состояния компонента
   const [isConnected, setIsConnected] = useState(false);
   const [keywords, setKeywords] = useState(['feedback', 'bug', 'feature request']);
   const [isLoading, setIsLoading] = useState(false);
@@ -16,51 +15,108 @@ export default function GmailSetup() {
 
   const supabase = createClient();
 
+  // useEffect для проверки подключения при монтировании компонента
   useEffect(() => {
-    checkGmailIntegration();
+    checkConnection();
   }, []);
 
-  const checkGmailIntegration = async () => {
+  const checkConnection = async () => {
     try {
+      // Получаем текущего пользователя
       const { data: { user } } = await supabase.auth.getUser();
       
-      if (user) {
-        const { data: integration } = await supabase
-          .from('integrations')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('platform', 'gmail')
-          .eq('is_active', true)
-          .single();
+      // Если нет пользователя, выходим из функции
+      if (!user) {
+        setIsConnected(false);
+        return;
+      }
+      
+      // Запрос к таблице integrations
+      const { data: integration, error } = await supabase
+        .from('integrations')
+        .select('*')
+        .eq('user_id', user.id)
+        .eq('platform', 'gmail')
+        .eq('status', 'connected')
+        .single();
         
-        if (integration) {
-          setGmailIntegration(integration);
-          setIsConnected(true);
-          
-          // Загружаем ключевые слова из конфигурации если есть
-          if (integration.config?.keywords) {
-            setKeywords(integration.config.keywords);
-          }
-          
-          // Устанавливаем время последней синхронизации
-          if (integration.config?.last_sync) {
-            setLastSync(integration.config.last_sync);
-          }
-        } else {
-          setIsConnected(false);
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 = No rows found
+        console.error('Error checking connection:', error);
+      }
+      
+      if (integration) {
+        // Устанавливаем isConnected в true
+        setIsConnected(true);
+        
+        // Сохраняем данные интеграции
+        setGmailIntegration(integration);
+        
+        // Обновляем keywords из config
+        if (integration.config?.keywords && Array.isArray(integration.config.keywords)) {
+          setKeywords(integration.config.keywords);
         }
+        
+        // Устанавливаем lastSync
+        if (integration.last_sync) {
+          setLastSync(integration.last_sync);
+        }
+      } else {
+        // Нет активной интеграции
+        setIsConnected(false);
+        setGmailIntegration(null);
+        setLastSync(null);
       }
     } catch (error) {
-      console.error('Error checking Gmail integration:', error);
+      console.error('Error in checkConnection:', error);
       setIsConnected(false);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConnectGmail = () => {
-    setConnecting(true);
+  // Для обратной совместимости оставляем старое имя функции
+  const checkGmailIntegration = checkConnection;
+
+  const handleConnect = () => {
+    // Установить isLoading: true
+    setIsLoading(true);
+    
+    // Выполнить редирект
     window.location.href = '/api/auth/gmail';
+  };
+  
+  // Для обратной совместимости оставляем старое имя функции
+  const handleConnectGmail = handleConnect;
+
+  const handleSync = async () => {
+    try {
+      // Установить isLoading: true
+      setIsLoading(true);
+      
+      // Выполнить POST запрос к /api/sync/gmail
+      const response = await fetch('/api/sync/gmail', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Ошибка синхронизации');
+      }
+      
+      // Вызвать checkConnection() для обновления статуса
+      await checkConnection();
+      
+      alert('Синхронизация выполнена успешно');
+    } catch (error) {
+      console.error('Error in handleSync:', error);
+      alert('Ошибка при синхронизации');
+    } finally {
+      // Установить isLoading: false
+      setIsLoading(false);
+    }
   };
 
   const handleDisconnectGmail = async () => {
@@ -70,7 +126,10 @@ export default function GmailSetup() {
       setIsLoading(true);
       const { error } = await supabase
         .from('integrations')
-        .update({ is_active: false })
+        .update({ 
+          status: 'disconnected',
+          updated_at: new Date().toISOString()
+        })
         .eq('id', gmailIntegration.id);
 
       if (error) throw error;
@@ -88,30 +147,37 @@ export default function GmailSetup() {
   };
 
   const updateKeywords = async (newKeywords) => {
-    if (!gmailIntegration) return;
-
     try {
       setIsLoading(true);
-      const updatedConfig = {
-        ...gmailIntegration.config,
-        keywords: newKeywords
-      };
+      
+      // Получить пользователя через supabase.auth.getUser()
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError || !user) {
+        throw new Error('Пользователь не найден');
+      }
 
+      // Обновить config в integrations
       const { error } = await supabase
         .from('integrations')
         .update({ 
-          config: updatedConfig,
+          config: { keywords: newKeywords },
           updated_at: new Date().toISOString()
         })
-        .eq('id', gmailIntegration.id);
+        .eq('user_id', user.id)
+        .eq('platform', 'gmail');
 
       if (error) throw error;
 
       setKeywords(newKeywords);
-      setGmailIntegration({
-        ...gmailIntegration,
-        config: updatedConfig
-      });
+      
+      // Обновляем локальное состояние gmailIntegration
+      if (gmailIntegration) {
+        setGmailIntegration({
+          ...gmailIntegration,
+          config: { ...gmailIntegration.config, keywords: newKeywords }
+        });
+      }
     } catch (error) {
       console.error('Error updating keywords:', error);
       alert('Ошибка при обновлении ключевых слов');
@@ -143,18 +209,10 @@ export default function GmailSetup() {
 
   return (
     <div className="p-6 bg-white rounded-lg border">
+      {/* Header с иконкой Gmail, названием и описанием */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-red-500 rounded-lg flex items-center justify-center">
-            <svg
-              className="w-6 h-6 text-white"
-              fill="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path d="M24 5.457v13.909c0 .904-.732 1.636-1.636 1.636h-3.819L11.18 12l7.365-9.002h3.819A1.636 1.636 0 0 1 24 5.457Z"/>
-              <path d="M10.715 12 2.05 21.002H1.636A1.636 1.636 0 0 1 0 19.366V5.457c0-.904.732-1.636 1.636-1.636h.414L10.715 12Z"/>
-            </svg>
-          </div>
+          <div className="text-2xl">📧</div>
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Gmail</h3>
             <p className="text-sm text-gray-500">
@@ -163,12 +221,20 @@ export default function GmailSetup() {
           </div>
         </div>
         
+        {/* Условный рендеринг: если подключен - показать статус и кнопку Sync, иначе - кнопку Connect */}
         <div className="flex items-center space-x-2">
           {isConnected ? (
             <div className="flex items-center space-x-2">
               <span className="px-2 py-1 text-xs font-medium text-green-600 bg-green-100 rounded-full">
                 Подключено
               </span>
+              <button
+                onClick={handleSync}
+                disabled={isLoading}
+                className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+              >
+                {isLoading ? 'Синхронизация...' : 'Sync'}
+              </button>
               <button
                 onClick={handleDisconnectGmail}
                 disabled={isLoading}
@@ -179,92 +245,95 @@ export default function GmailSetup() {
             </div>
           ) : (
             <button
-              onClick={handleConnectGmail}
-              disabled={connecting || isLoading}
+              onClick={handleConnect}
+              disabled={isLoading}
               className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
             >
-              {connecting ? 'Подключение...' : 'Подключить Gmail'}
+              {isLoading ? 'Подключение...' : 'Connect'}
             </button>
           )}
         </div>
       </div>
 
-      {isConnected && gmailIntegration && (
-        <>
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-            <h4 className="text-sm font-medium text-gray-900 mb-2">Настройки синхронизации</h4>
-            <div className="space-y-2 text-sm text-gray-600">
-              <div>
-                <span className="font-medium">Папка:</span> {gmailIntegration.config?.default_folder || 'INBOX'}
-              </div>
-              <div>
-                <span className="font-medium">Автосинхронизация:</span> {gmailIntegration.config?.auto_sync ? 'Включена' : 'Отключена'}
-              </div>
-              <div>
-                <span className="font-medium">Частота:</span> {gmailIntegration.config?.sync_frequency || 'hourly'}
-              </div>
-              <div>
-                <span className="font-medium">Подключено:</span> {new Date(gmailIntegration.created_at).toLocaleDateString()}
-              </div>
-              {lastSync && (
-                <div>
-                  <span className="font-medium">Последняя синхронизация:</span> {new Date(lastSync).toLocaleString()}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-            <h4 className="text-sm font-medium text-gray-900 mb-2">Ключевые слова для поиска</h4>
-            <div className="flex flex-wrap gap-2 mb-3">
-              {keywords.map((keyword, index) => (
-                <span 
-                  key={index}
-                  className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-700"
+      {/* Если подключен: форма для редактирования keywords с onBlur вызовом updateKeywords */}
+      {isConnected && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Ключевые слова для поиска</h4>
+          <div className="flex flex-wrap gap-2 mb-3">
+            {keywords.map((keyword, index) => (
+              <span 
+                key={index}
+                className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-700"
+              >
+                {keyword}
+                <button
+                  onClick={() => handleRemoveKeyword(keyword)}
+                  disabled={isLoading}
+                  className="ml-2 text-blue-500 hover:text-blue-700 disabled:opacity-50"
                 >
-                  {keyword}
-                  <button
-                    onClick={() => handleRemoveKeyword(keyword)}
-                    disabled={isLoading}
-                    className="ml-2 text-blue-500 hover:text-blue-700 disabled:opacity-50"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder="Добавить ключевое слово"
-                className="flex-1 px-3 py-1 border rounded-md text-sm"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    handleAddKeyword(e.target.value);
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Добавить ключевое слово"
+              className="flex-1 px-3 py-1 border rounded-md text-sm disabled:opacity-50"
+              onBlur={(e) => {
+                if (e.target.value.trim()) {
+                  handleAddKeyword(e.target.value.trim());
+                  e.target.value = '';
+                }
+              }}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  if (e.target.value.trim()) {
+                    handleAddKeyword(e.target.value.trim());
                     e.target.value = '';
                   }
-                }}
-                disabled={isLoading}
-              />
-              <button
-                onClick={() => {
-                  const input = document.querySelector('input[type="text"]');
-                  if (input.value) {
-                    handleAddKeyword(input.value);
-                    input.value = '';
-                  }
-                }}
-                disabled={isLoading}
-                className="px-4 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 disabled:opacity-50"
-              >
-                Добавить
-              </button>
-            </div>
+                }
+              }}
+              disabled={isLoading}
+            />
+            <button
+              onClick={() => {
+                const input = document.querySelector('input[type="text"]');
+                if (input.value.trim()) {
+                  handleAddKeyword(input.value.trim());
+                  input.value = '';
+                }
+              }}
+              disabled={isLoading}
+              className="px-4 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 disabled:opacity-50"
+            >
+              Добавить
+            </button>
           </div>
-        </>
+        </div>
       )}
 
-      {!gmailIntegration && (
+      {/* Показ времени последней синхронизации если есть */}
+      {isConnected && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Статус синхронизации</h4>
+          <div className="text-sm text-gray-600">
+            {lastSync ? (
+              <div>
+                <span className="font-medium">Последняя синхронизация:</span> {new Date(lastSync).toLocaleString()}
+              </div>
+            ) : (
+              <div>
+                <span className="font-medium">Последняя синхронизация:</span> <span className="text-gray-400">Еще не выполнялась</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Информация о подключении для неподключенных пользователей */}
+      {!isConnected && (
         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
           <h4 className="text-sm font-medium text-blue-900 mb-2">Что будет подключено:</h4>
           <ul className="text-sm text-blue-700 space-y-1">
