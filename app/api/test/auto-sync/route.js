@@ -105,23 +105,38 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Gmail OAuth not configured' }, { status: 500 });
     }
 
-    // Get keywords for filtering
-    const keywords = integration.config?.keywords || ['feedback'];
+    // Calculate time filter based on last sync
+    let timeFilter;
+    if (integration.last_sync) {
+      // Use last sync time, but add 1 minute buffer to avoid missing emails
+      const lastSyncTime = new Date(integration.last_sync);
+      lastSyncTime.setMinutes(lastSyncTime.getMinutes() - 1);
+      timeFilter = Math.floor(lastSyncTime.getTime() / 1000);
+      console.log(`📅 Fetching emails since last sync: ${lastSyncTime.toISOString()}`);
+    } else {
+      // First sync - get emails from last 7 days
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      timeFilter = Math.floor(weekAgo.getTime() / 1000);
+      console.log(`📅 First sync - fetching emails from last 7 days: ${weekAgo.toISOString()}`);
+    }
     
-    // Fetch recent emails (last 24 hours for testing)
-    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const emailsResult = await gmailService.getEmails({ 
-      maxResults: 10, // Limit for testing
+      maxResults: 50, // Increased limit since we're filtering by time
       labelIds: ['INBOX'],
-      query: `after:${Math.floor(oneDayAgo.getTime() / 1000)}`
+      query: `after:${timeFilter}`
     });
 
     if (!emailsResult || !emailsResult.messages) {
+      const message = integration.last_sync 
+        ? 'No new emails since last sync'
+        : 'No emails found in the last 7 days';
+      
       return NextResponse.json({
         success: true,
-        message: 'No emails found to test',
+        message,
         processed: 0,
-        test_mode: true
+        time_filter: new Date(timeFilter * 1000).toISOString(),
+        last_sync: integration.last_sync
       });
     }
 
@@ -276,9 +291,10 @@ export async function POST(request) {
       success: true,
       processed: processedCount,
       total_emails: messages.length,
-      test_mode: true,
       processed_emails: processedEmails,
-      keywords_used: keywords,
+      time_filter: new Date(timeFilter * 1000).toISOString(),
+      last_sync_before: integration.last_sync,
+      last_sync_after: new Date().toISOString(),
       timestamp: new Date().toISOString()
     });
 

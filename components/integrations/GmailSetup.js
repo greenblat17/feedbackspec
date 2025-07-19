@@ -172,19 +172,31 @@ export default function GmailSetup() {
       
       // Показать результаты
       if (data.success) {
-        const message = `✅ Автосинхронизация завершена!\n\n📊 Обработано: ${data.processed} из ${data.total_emails} писем\n⏰ Время: ${new Date(data.timestamp).toLocaleString()}`;
+        const timeInfo = data.last_sync_before 
+          ? `с ${new Date(data.time_filter).toLocaleString()}`
+          : 'за последние 7 дней (первая синхронизация)';
+          
+        const message = `✅ Анализ завершен!\n\n📊 Обработано: ${data.processed} из ${data.total_emails} писем\n📅 Период: ${timeInfo}\n⏰ Время: ${new Date(data.timestamp).toLocaleString()}`;
         
         if (data.processed_emails && data.processed_emails.length > 0) {
-          const summary = data.processed_emails
-            .filter(email => email.status === 'processed')
-            .map(email => `• ${email.subject} → ${email.category} (${email.priority})`)
-            .join('\n');
+          const processed = data.processed_emails.filter(email => email.status === 'processed');
+          const filtered = data.processed_emails.filter(email => email.status === 'filtered_out');
           
-          if (summary) {
-            alert(message + '\n\n📧 Обработанные письма:\n' + summary);
-          } else {
-            alert(message + '\n\n📭 Новых писем с фидбеком не найдено');
+          let details = '';
+          if (processed.length > 0) {
+            const summary = processed
+              .map(email => `• ${email.subject} → ${email.category} (${email.priority})`)
+              .join('\n');
+            details += `\n\n📧 Найден фидбек:\n${summary}`;
           }
+          if (filtered.length > 0) {
+            details += `\n\n🚫 Отфильтровано: ${filtered.length} маркетинговых/уведомительных писем`;
+          }
+          if (processed.length === 0) {
+            details += '\n\n📭 Новых писем с фидбеком не найдено';
+          }
+          
+          alert(message + details);
         } else {
           alert(message);
         }
@@ -404,20 +416,22 @@ export default function GmailSetup() {
       {/* AI Analysis Info */}
       {isConnected && (
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">🤖 AI-Powered Analysis</h4>
+          <h4 className="text-sm font-medium text-gray-900 mb-2">🤖 AI-Powered Manual Analysis</h4>
           <p className="text-sm text-gray-600">
-            All emails are automatically analyzed by AI to detect feedback. The system identifies:
+            Click "🤖 AI Анализ" to manually analyze emails for feedback. The system:
           </p>
           <ul className="mt-2 text-sm text-gray-600 space-y-1">
-            <li>• Bug reports and technical issues</li>
-            <li>• Feature requests and suggestions</li>
-            <li>• User complaints and concerns</li>
-            <li>• Positive feedback and praise</li>
-            <li>• Questions and support requests</li>
+            <li>• Analyzes only new emails since last sync</li>
+            <li>• Identifies bug reports, feature requests, complaints</li>
+            <li>• Filters out marketing emails and notifications</li>
+            <li>• Saves only genuine feedback to database</li>
+            <li>• Remembers last sync time to avoid duplicates</li>
           </ul>
-          <p className="text-xs text-gray-500 mt-3">
-            💡 No keyword filtering - AI analyzes all emails to ensure no feedback is missed
-          </p>
+          <div className="mt-3 p-2 bg-blue-50 rounded border-l-4 border-blue-400">
+            <p className="text-xs text-blue-700">
+              <strong>Manual Control:</strong> Run analysis whenever you want - no automatic background processing
+            </p>
+          </div>
         </div>
       )}
 
