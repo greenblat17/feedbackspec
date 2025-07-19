@@ -8,6 +8,7 @@ import {
   findDuplicateFeedback,
   groupSimilarFeedback,
 } from "../../../libs/ai/index.js";
+import { EnhancedFeedbackAnalyzer } from "../../../lib/ai/enhanced-analyzer.js";
 import {
   withErrorHandler,
   createValidationError,
@@ -496,10 +497,10 @@ export const POST = withErrorHandler(async (request) => {
     // Update feedback clusters after adding new feedback
     await updateFeedbackClusters(supabase, user.id);
 
-    // Perform AI Analysis on the feedback
+    // Perform Enhanced AI Analysis on the feedback
     let aiAnalysis = null;
     if (isAIConfigured() && insertedData.content) {
-      console.log("🧠 Performing AI analysis on feedback...");
+      console.log("🧠 Performing enhanced AI analysis on feedback...");
 
       try {
         // Validate content before analysis
@@ -509,36 +510,31 @@ export const POST = withErrorHandler(async (request) => {
           // Create timeout for AI analysis
           const aiTimeout = new Promise((_, reject) => {
             setTimeout(
-              () => reject(new Error("AI analysis timeout after 15 seconds")),
-              15000
+              () => reject(new Error("Enhanced AI analysis timeout after 20 seconds")),
+              20000
             );
           });
 
-          // Analyze the feedback content with timeout
+          // Initialize enhanced analyzer
+          const enhancedAnalyzer = new EnhancedFeedbackAnalyzer();
+
+          // Analyze the feedback content with enhanced analysis and timeout
           aiAnalysis = await Promise.race([
-            analyzeFeedback(insertedData.content, user.id),
+            enhancedAnalyzer.analyzeFeedback(
+              insertedData.content, 
+              insertedData.platform, 
+              insertedData.metadata
+            ),
             aiTimeout,
           ]);
 
           if (aiAnalysis) {
             console.log(
-              `✅ AI Analysis completed: ${aiAnalysis.sentiment} sentiment, ${aiAnalysis.priority} priority`
+              `✅ Enhanced AI Analysis completed: ${aiAnalysis.sentiment} sentiment, ${aiAnalysis.priority} priority, ${aiAnalysis.confidence} confidence, ${aiAnalysis.business_impact} business impact`
             );
 
-            // Validate AI analysis structure
-            if (!aiAnalysis.sentiment || !aiAnalysis.priority) {
-              console.warn("⚠️ AI analysis incomplete - using fallback values");
-              aiAnalysis = {
-                sentiment: aiAnalysis.sentiment || "neutral",
-                priority: aiAnalysis.priority || "medium",
-                themes: aiAnalysis.themes || [],
-                categories: aiAnalysis.categories || ["general"],
-                summary: aiAnalysis.summary || "AI analysis completed",
-                actionableInsights: aiAnalysis.actionableInsights || [],
-                suggestedActions: aiAnalysis.suggestedActions || [],
-                sentimentScore: aiAnalysis.sentimentScore || 0,
-              };
-            }
+            // Enhanced analysis already includes validation and fallback values
+            // No need to modify the structure as it's handled by EnhancedFeedbackAnalyzer
 
             // Update the feedback record with AI analysis
             try {
