@@ -48,11 +48,28 @@ ${platformContext}
 Feedback Content:
 "${feedback}"
 
-Please analyze this feedback and return a JSON object with the following structure:
+IMPORTANT: Be very strict about what constitutes genuine user feedback. The following are NOT feedback:
+- Marketing emails (newsletters, promotions, advertisements)
+- Automated notifications (password resets, confirmations, alerts)
+- Unsubscribe links and legal footers
+- Social media notifications (likes, follows, recommendations)
+- Spam or commercial messages
+- Third-party service emails (Pinterest, Facebook, etc.)
+- System-generated messages
+
+Only classify as feedback if the content contains:
+- Direct user opinions about a product/service
+- Bug reports or technical issues
+- Feature requests or suggestions
+- Complaints about specific functionality
+- Praise for specific features
+- Questions about how to use a product
+
+Please analyze this content and return a JSON object with the following structure:
 {
   "sentiment": "positive|negative|neutral",
   "priority": "low|medium|high|urgent",
-  "category": "bug|feature|improvement|complaint|praise|question|suggestion",
+  "category": "bug|feature|improvement|complaint|praise|question|suggestion|general",
   "confidence": 0.95,
   "keywords": ["keyword1", "keyword2"],
   "user_intent": "Brief description of what the user wants/needs",
@@ -63,16 +80,12 @@ Please analyze this feedback and return a JSON object with the following structu
 }
 
 Analysis Guidelines:
-- Consider platform context (Twitter has character limits, emails are more detailed)
-- Factor in author influence (high follower count = higher business impact)
-- Engagement metrics indicate community interest
-- Technical terms suggest user expertise level
-- Sentiment should reflect overall tone
-- Priority considers both urgency and business impact
-- Keywords should be relevant product/feature terms
-- User intent should be clear and actionable
-- Business impact considers potential revenue/user satisfaction effects
-- Urgency considers time-sensitivity of the issue
+- Use "general" category for non-feedback content (marketing, notifications, spam)
+- Set low confidence (< 0.8) for unclear or non-feedback content
+- Be conservative - when in doubt, classify as "general"
+- Marketing emails should ALWAYS be "general" with low confidence
+- Automated system emails should ALWAYS be "general" with low confidence
+- Only high-confidence genuine feedback should get specific categories
 - Confidence should be between 0.0 and 1.0`;
 
       const completion = await this.openai.chat.completions.create({

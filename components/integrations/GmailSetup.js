@@ -151,6 +151,56 @@ export default function GmailSetup() {
     }
   };
 
+  const handleAutoSync = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Выполнить POST запрос к новому auto-sync endpoint
+      const response = await fetch('/api/test/auto-sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Ошибка автоматической синхронизации');
+      }
+      
+      const data = await response.json();
+      
+      // Показать результаты
+      if (data.success) {
+        const message = `✅ Автосинхронизация завершена!\n\n📊 Обработано: ${data.processed} из ${data.total_emails} писем\n⏰ Время: ${new Date(data.timestamp).toLocaleString()}`;
+        
+        if (data.processed_emails && data.processed_emails.length > 0) {
+          const summary = data.processed_emails
+            .filter(email => email.status === 'processed')
+            .map(email => `• ${email.subject} → ${email.category} (${email.priority})`)
+            .join('\n');
+          
+          if (summary) {
+            alert(message + '\n\n📧 Обработанные письма:\n' + summary);
+          } else {
+            alert(message + '\n\n📭 Новых писем с фидбеком не найдено');
+          }
+        } else {
+          alert(message);
+        }
+      }
+      
+      // Обновить статус подключения
+      await checkConnection();
+      
+    } catch (error) {
+      console.error('Error in handleAutoSync:', error);
+      alert(`❌ Ошибка автосинхронизации: ${error.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleTestEmails = async () => {
     try {
       setIsLoading(true);
@@ -295,6 +345,13 @@ export default function GmailSetup() {
                 {isLoading ? 'Syncing...' : 'Sync'}
               </button>
               <button
+                onClick={handleAutoSync}
+                disabled={isLoading}
+                className="px-3 py-1 text-sm bg-orange-500 text-white rounded hover:bg-orange-600 disabled:opacity-50"
+              >
+                {isLoading ? 'Анализируем...' : '🤖 AI Анализ'}
+              </button>
+              <button
                 onClick={handleTestEmails}
                 disabled={isLoading}
                 className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
@@ -344,62 +401,23 @@ export default function GmailSetup() {
         </div>
       </div>
 
-      {/* Если подключен: форма для редактирования keywords с onBlur вызовом updateKeywords */}
+      {/* AI Analysis Info */}
       {isConnected && (
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">Search Keywords</h4>
-          <div className="flex flex-wrap gap-2 mb-3">
-            {keywords.map((keyword, index) => (
-              <span 
-                key={index}
-                className="inline-flex items-center px-3 py-1 rounded-full text-sm bg-blue-100 text-blue-700"
-              >
-                {keyword}
-                <button
-                  onClick={() => handleRemoveKeyword(keyword)}
-                  disabled={isLoading}
-                  className="ml-2 text-blue-500 hover:text-blue-700 disabled:opacity-50"
-                >
-                  ×
-                </button>
-              </span>
-            ))}
-          </div>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Add keyword"
-              className="flex-1 px-3 py-1 border rounded-md text-sm disabled:opacity-50"
-              onBlur={(e) => {
-                if (e.target.value.trim()) {
-                  handleAddKeyword(e.target.value.trim());
-                  e.target.value = '';
-                }
-              }}
-              onKeyPress={(e) => {
-                if (e.key === 'Enter') {
-                  if (e.target.value.trim()) {
-                    handleAddKeyword(e.target.value.trim());
-                    e.target.value = '';
-                  }
-                }
-              }}
-              disabled={isLoading}
-            />
-            <button
-              onClick={() => {
-                const input = document.querySelector('input[type="text"]');
-                if (input.value.trim()) {
-                  handleAddKeyword(input.value.trim());
-                  input.value = '';
-                }
-              }}
-              disabled={isLoading}
-              className="px-4 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 disabled:opacity-50"
-            >
-              Add
-            </button>
-          </div>
+          <h4 className="text-sm font-medium text-gray-900 mb-2">🤖 AI-Powered Analysis</h4>
+          <p className="text-sm text-gray-600">
+            All emails are automatically analyzed by AI to detect feedback. The system identifies:
+          </p>
+          <ul className="mt-2 text-sm text-gray-600 space-y-1">
+            <li>• Bug reports and technical issues</li>
+            <li>• Feature requests and suggestions</li>
+            <li>• User complaints and concerns</li>
+            <li>• Positive feedback and praise</li>
+            <li>• Questions and support requests</li>
+          </ul>
+          <p className="text-xs text-gray-500 mt-3">
+            💡 No keyword filtering - AI analyzes all emails to ensure no feedback is missed
+          </p>
         </div>
       )}
 
