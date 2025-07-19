@@ -20,6 +20,7 @@
     "eslint": "8.47.0",
     "eslint-config-next": "13.4.19",
     "form-data": "^4.0.0",
+    "googleapis": "^153.0.0",
     "next": "^14.1.4",
     "next-sitemap": "^4.2.3",
     "nextjs-toploader": "^1.6.11",
@@ -34,9 +35,11 @@
     "stripe": "^13.11.0"
   },
   "devDependencies": {
+    "@types/react": "19.1.8",
     "autoprefixer": "^10.4.19",
     "daisyui": "^4.10.1",
     "postcss": "^8.4.38",
-    "tailwindcss": "^3.4.3"
+    "tailwindcss": "^3.4.3",
+    "typescript": "5.8.3"
   }
 }
