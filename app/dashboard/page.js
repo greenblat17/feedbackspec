@@ -2,10 +2,10 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/libs/supabase/client";
-import ButtonAccount from "@/components/ButtonAccount";
-import FeedbackForm from "@/components/FeedbackForm";
-import SpecGenerator from "@/components/SpecGenerator";
+import { createClient } from "../../libs/supabase/client.js";
+import ButtonAccount from "../../components/ButtonAccount.js";
+import FeedbackForm from "../../components/FeedbackForm.js";
+import SpecGenerator from "../../components/SpecGenerator.js";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
 

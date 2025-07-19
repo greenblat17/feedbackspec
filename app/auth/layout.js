@@ -1,5 +1,5 @@
-import { getSEOTags } from "@/libs/seo";
-import config from "@/config";
+import { getSEOTags } from "../../libs/seo.js";
+import config from "../../config.js";
 
 export const metadata = getSEOTags({
   title: `Sign in | ${config.appName}`,

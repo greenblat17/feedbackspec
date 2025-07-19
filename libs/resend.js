@@ -1,5 +1,5 @@
 import { Resend } from "resend";
-import config from "@/config";
+import config from "../config.js";
 
 if (!process.env.RESEND_API_KEY) {
   throw new Error("RESEND_API_KEY is not set");

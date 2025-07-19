@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useFeedback, useFeedbackFilters, useSpecs } from "@/hooks";
+import { useFeedback, useFeedbackFilters, useSpecs } from "../../../hooks/index.js";
 import { 
   LoadingSpinner, 
   ErrorBoundary, 
@@ -11,8 +11,8 @@ import {
   Card,
   CardHeader,
   CardBody 
-} from "@/components/ui";
-import FeedbackForm from "@/components/FeedbackForm";
+} from "../../../components/ui/index.js";
+import FeedbackForm from "../../../components/FeedbackForm.js";
 import ReactMarkdown from "react-markdown";
 import toast from "react-hot-toast";
 

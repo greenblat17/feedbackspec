@@ -1,9 +1,9 @@
 "use client";
 
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../../../libs/supabase/client.js";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import SpecGenerator from "@/components/SpecGenerator";
+import SpecGenerator from "../../../components/SpecGenerator.js";
 
 export const dynamic = "force-dynamic";
 

@@ -1,4 +1,4 @@
-import { createCheckout } from "@/libs/stripe";
+import { createCheckout } from "../../../../libs/stripe.js";
 import {
   createAuthenticatedSupabaseClient,
   getAuthenticatedUser,

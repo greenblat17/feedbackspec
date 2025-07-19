@@ -1,10 +1,10 @@
-import Hero from "@/components/Hero";
-import Problem from "@/components/Problem";
-import Testimonials3 from "@/components/Testimonials3";
-import Pricing from "@/components/Pricing";
-import FAQ from "@/components/FAQ";
-import CTA from "@/components/CTA";
-import Header from "@/components/Header";
+import Hero from "../components/Hero.js";
+import Problem from "../components/Problem.js";
+import Testimonials3 from "../components/Testimonials3.js";
+import Pricing from "../components/Pricing.js";
+import FAQ from "../components/FAQ.js";
+import CTA from "../components/CTA.js";
+import Header from "../components/Header.js";
 
 // Benefits/Features section component
 const Benefits = () => {

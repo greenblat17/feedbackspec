@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../libs/supabase/client.js";
 import ReactMarkdown from "react-markdown";
 
 export default function SpecGenerator() {

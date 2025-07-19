@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, usePathname } from "next/navigation";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../libs/supabase/client.js";
 import { useState } from "react";
 
 export default function DashboardNav() {

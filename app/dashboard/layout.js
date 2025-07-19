@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/libs/supabase/server";
-import DashboardNav from "@/components/DashboardNav";
-import config from "@/config";
+import { createClient } from "../../libs/supabase/server.js";
+import DashboardNav from "../../components/DashboardNav.js";
+import config from "../../config.js";
 
 // This is a server-side component to ensure the user is logged in.
 // If not, it will redirect to the login page.

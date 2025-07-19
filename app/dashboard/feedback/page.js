@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import FeedbackForm from "@/components/FeedbackForm";
+import FeedbackForm from "../../../components/FeedbackForm.js";
 import toast from "react-hot-toast";
 import ReactMarkdown from "react-markdown";
 

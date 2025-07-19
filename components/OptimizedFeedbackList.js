@@ -7,8 +7,8 @@ import {
   VirtualList, 
   useComponentPerformance,
   createShallowMemoComponent,
-} from '@/libs/performance';
-import { FeedbackCard } from '@/components/ui';
+} from '../libs/performance.js';
+import { FeedbackCard } from './ui/index.js';
 
 /**
  * Optimized individual feedback item component

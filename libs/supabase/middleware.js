@@ -7,8 +7,8 @@ import {
   isPublicApiRoute,
   getRedirectUrl,
   debugLog,
-} from "@/libs/middleware-config";
-import { createAuthenticatedSupabaseClient } from "@/libs/auth/server-auth";
+} from "../middleware-config.js";
+import { createAuthenticatedSupabaseClient } from "../auth/server-auth.js";
 
 export async function updateSession(request) {
   const url = request.nextUrl.clone();

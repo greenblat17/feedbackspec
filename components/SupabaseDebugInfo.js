@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../libs/supabase/client";
 
 export default function SupabaseDebugInfo() {
   const [debugInfo, setDebugInfo] = useState({});

@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../../libs/supabase/client.js";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
-import config from "@/config";
+import config from "../../config.js";
 import toast from "react-hot-toast";
-import SupabaseDebugInfo from "@/components/SupabaseDebugInfo";
+import SupabaseDebugInfo from "../../components/SupabaseDebugInfo.js";
 
 export default function AuthPage() {
   const supabase = createClient();

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { createClient } from '@/libs/supabase/client';
+import { createClient } from '../../libs/supabase/client.js';
 
 export default function GmailSetup() {
   const [gmailIntegration, setGmailIntegration] = useState(null);
@@ -12,6 +12,8 @@ export default function GmailSetup() {
   const [keywords, setKeywords] = useState(['feedback', 'bug', 'feature request']);
   const [isLoading, setIsLoading] = useState(false);
   const [lastSync, setLastSync] = useState(null);
+  const [testEmails, setTestEmails] = useState([]);
+  const [showTestEmails, setShowTestEmails] = useState(false);
 
   const supabase = createClient();
 
@@ -78,12 +80,42 @@ export default function GmailSetup() {
   // Для обратной совместимости оставляем старое имя функции
   const checkGmailIntegration = checkConnection;
 
-  const handleConnect = () => {
-    // Установить isLoading: true
-    setIsLoading(true);
-    
-    // Выполнить редирект
-    window.location.href = '/api/auth/gmail';
+  const handleConnect = async () => {
+    try {
+      setIsLoading(true);
+      
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        alert('Please log in first');
+        return;
+      }
+      
+      // Create OAuth URL with user context
+      const response = await fetch('/api/auth/gmail/initiate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          userEmail: user.email
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (data.authUrl) {
+        // Redirect to Google OAuth
+        window.location.href = data.authUrl;
+      } else {
+        throw new Error('Failed to get authorization URL');
+      }
+    } catch (error) {
+      console.error('Error initiating Gmail connection:', error);
+      alert('Error connecting to Gmail');
+      setIsLoading(false);
+    }
   };
   
   // Для обратной совместимости оставляем старое имя функции
@@ -109,12 +141,39 @@ export default function GmailSetup() {
       // Вызвать checkConnection() для обновления статуса
       await checkConnection();
       
-      alert('Синхронизация выполнена успешно');
+      alert('Sync completed successfully');
     } catch (error) {
       console.error('Error in handleSync:', error);
-      alert('Ошибка при синхронизации');
+      alert('Error during sync');
     } finally {
       // Установить isLoading: false
+      setIsLoading(false);
+    }
+  };
+
+  const handleTestEmails = async () => {
+    try {
+      setIsLoading(true);
+      
+      const response = await fetch('/api/test/gmail', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch test emails');
+      }
+      
+      const data = await response.json();
+      setTestEmails(data.emails || []);
+      setShowTestEmails(true);
+      
+    } catch (error) {
+      console.error('Error fetching test emails:', error);
+      alert('Error fetching emails');
+    } finally {
       setIsLoading(false);
     }
   };
@@ -137,10 +196,10 @@ export default function GmailSetup() {
       setGmailIntegration(null);
       setIsConnected(false);
       setLastSync(null);
-      alert('Gmail отключен успешно');
+      alert('Gmail disconnected successfully');
     } catch (error) {
       console.error('Error disconnecting Gmail:', error);
-      alert('Ошибка при отключении Gmail');
+      alert('Error disconnecting Gmail');
     } finally {
       setIsLoading(false);
     }
@@ -154,7 +213,7 @@ export default function GmailSetup() {
       const { data: { user }, error: userError } = await supabase.auth.getUser();
       
       if (userError || !user) {
-        throw new Error('Пользователь не найден');
+        throw new Error('User not found');
       }
 
       // Обновить config в integrations
@@ -180,7 +239,7 @@ export default function GmailSetup() {
       }
     } catch (error) {
       console.error('Error updating keywords:', error);
-      alert('Ошибка при обновлении ключевых слов');
+      alert('Error updating keywords');
     } finally {
       setIsLoading(false);
     }
@@ -216,7 +275,7 @@ export default function GmailSetup() {
           <div>
             <h3 className="text-lg font-semibold text-gray-900">Gmail</h3>
             <p className="text-sm text-gray-500">
-              Подключите Gmail для автоматического сбора обратной связи
+              Connect Gmail to automatically collect feedback from emails
             </p>
           </div>
         </div>
@@ -226,21 +285,51 @@ export default function GmailSetup() {
           {isConnected ? (
             <div className="flex items-center space-x-2">
               <span className="px-2 py-1 text-xs font-medium text-green-600 bg-green-100 rounded-full">
-                Подключено
+                Connected
               </span>
               <button
                 onClick={handleSync}
                 disabled={isLoading}
                 className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
               >
-                {isLoading ? 'Синхронизация...' : 'Sync'}
+                {isLoading ? 'Syncing...' : 'Sync'}
+              </button>
+              <button
+                onClick={handleTestEmails}
+                disabled={isLoading}
+                className="px-3 py-1 text-sm bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+              >
+                {isLoading ? 'Loading...' : 'Test Emails'}
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    setIsLoading(true);
+                    const response = await fetch('/api/test-gmail-simple', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+                    const data = await response.json();
+                    console.log('Simple test result:', data);
+                    alert(response.ok ? 'Gmail API test passed!' : `Test failed: ${data.error}`);
+                  } catch (error) {
+                    console.error('Test error:', error);
+                    alert('Test failed');
+                  } finally {
+                    setIsLoading(false);
+                  }
+                }}
+                disabled={isLoading}
+                className="px-3 py-1 text-sm bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
+              >
+                Debug Test
               </button>
               <button
                 onClick={handleDisconnectGmail}
                 disabled={isLoading}
                 className="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50 disabled:opacity-50"
               >
-                {isLoading ? 'Отключение...' : 'Отключить'}
+                {isLoading ? 'Disconnecting...' : 'Disconnect'}
               </button>
             </div>
           ) : (
@@ -249,7 +338,7 @@ export default function GmailSetup() {
               disabled={isLoading}
               className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50"
             >
-              {isLoading ? 'Подключение...' : 'Connect'}
+              {isLoading ? 'Connecting...' : 'Connect Gmail'}
             </button>
           )}
         </div>
@@ -258,7 +347,7 @@ export default function GmailSetup() {
       {/* Если подключен: форма для редактирования keywords с onBlur вызовом updateKeywords */}
       {isConnected && (
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">Ключевые слова для поиска</h4>
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Search Keywords</h4>
           <div className="flex flex-wrap gap-2 mb-3">
             {keywords.map((keyword, index) => (
               <span 
@@ -279,7 +368,7 @@ export default function GmailSetup() {
           <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Добавить ключевое слово"
+              placeholder="Add keyword"
               className="flex-1 px-3 py-1 border rounded-md text-sm disabled:opacity-50"
               onBlur={(e) => {
                 if (e.target.value.trim()) {
@@ -308,7 +397,7 @@ export default function GmailSetup() {
               disabled={isLoading}
               className="px-4 py-1 bg-blue-500 text-white rounded-md text-sm hover:bg-blue-600 disabled:opacity-50"
             >
-              Добавить
+              Add
             </button>
           </div>
         </div>
@@ -317,17 +406,65 @@ export default function GmailSetup() {
       {/* Показ времени последней синхронизации если есть */}
       {isConnected && (
         <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-          <h4 className="text-sm font-medium text-gray-900 mb-2">Статус синхронизации</h4>
+          <h4 className="text-sm font-medium text-gray-900 mb-2">Sync Status</h4>
           <div className="text-sm text-gray-600">
             {lastSync ? (
               <div>
-                <span className="font-medium">Последняя синхронизация:</span> {new Date(lastSync).toLocaleString()}
+                <span className="font-medium">Last sync:</span> {new Date(lastSync).toLocaleString()}
               </div>
             ) : (
               <div>
-                <span className="font-medium">Последняя синхронизация:</span> <span className="text-gray-400">Еще не выполнялась</span>
+                <span className="font-medium">Last sync:</span> <span className="text-gray-400">Never</span>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Test Emails Display */}
+      {showTestEmails && testEmails.length > 0 && (
+        <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-gray-900">Last 5 Emails from Gmail</h4>
+            <button
+              onClick={() => setShowTestEmails(false)}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              ✕
+            </button>
+          </div>
+          <div className="space-y-3">
+            {testEmails.map((email, index) => (
+              <div key={email.id} className="p-3 bg-white rounded border">
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1">
+                    <h5 className="text-sm font-medium text-gray-900 truncate">
+                      {email.subject}
+                    </h5>
+                    <p className="text-xs text-gray-600 mt-1">
+                      From: {email.from}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {email.date}
+                    </p>
+                  </div>
+                  <span className="text-xs text-gray-400 ml-2">#{index + 1}</span>
+                </div>
+                {email.snippet && (
+                  <p className="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-2">
+                    {email.snippet}
+                  </p>
+                )}
+                {email.body && email.body !== email.snippet && (
+                  <p className="text-xs text-gray-700 mt-2 line-clamp-3">
+                    {email.body}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 text-xs text-gray-500 text-center">
+            Showing last {testEmails.length} emails from your Gmail inbox
           </div>
         </div>
       )}
@@ -335,12 +472,12 @@ export default function GmailSetup() {
       {/* Информация о подключении для неподключенных пользователей */}
       {!isConnected && (
         <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <h4 className="text-sm font-medium text-blue-900 mb-2">Что будет подключено:</h4>
+          <h4 className="text-sm font-medium text-blue-900 mb-2">What will be connected:</h4>
           <ul className="text-sm text-blue-700 space-y-1">
-            <li>• Чтение писем из папки INBOX</li>
-            <li>• Автоматический поиск обратной связи</li>
-            <li>• Синхронизация каждый час</li>
-            <li>• Безопасное хранение токенов</li>
+            <li>• Read emails from INBOX folder</li>
+            <li>• Automatic feedback search</li>
+            <li>• Sync every hour</li>
+            <li>• Secure token storage</li>
           </ul>
         </div>
       )}

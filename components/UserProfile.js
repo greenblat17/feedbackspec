@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../libs/supabase/client";
 import toast from "react-hot-toast";
-import config from "@/config";
+import config from "../config.js";
 
 export default function UserProfile() {
   const supabase = createClient();

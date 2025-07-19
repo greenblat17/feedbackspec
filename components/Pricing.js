@@ -1,4 +1,4 @@
-import config from "@/config";
+import config from "../config.js";
 import ButtonCheckout from "./ButtonCheckout";
 
 // <Pricing/> displays the pricing plans for your app

@@ -1,4 +1,4 @@
-import { withAuthAPI } from "@/libs/auth-utils";
+import { withAuthAPI } from "../../../../libs/auth-utils.js";
 import { NextResponse } from "next/server";
 
 // GET /api/user/profile

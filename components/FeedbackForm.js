@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { createClient } from "@/libs/supabase/client";
+import { createClient } from "../libs/supabase/client.js";
 import toast from "react-hot-toast";
 
 // Validation rules

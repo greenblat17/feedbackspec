@@ -1,7 +1,7 @@
-import { createClient } from "@/libs/supabase/client";
-import { createClient as createServerClient } from "@/libs/supabase/server";
+import { createClient } from "./supabase/client.js";
+import { createClient as createServerClient } from "./supabase/server.js";
 import { redirect } from "next/navigation";
-import config from "@/config";
+import config from "../config.js";
 import { useState, useEffect } from "react";
 
 // Client-side authentication utilities

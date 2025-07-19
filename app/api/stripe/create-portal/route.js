@@ -3,7 +3,7 @@ import {
   createAuthenticatedSupabaseClient,
   getAuthenticatedUser,
 } from "../../../libs/auth/server-auth.js";
-import { createCustomerPortal } from "@/libs/stripe";
+import { createCustomerPortal } from "../../../../libs/stripe.js";
 import {
   withErrorHandler,
   createAuthError,
