@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../libs/supabase/server.js';
-import { EnhancedFeedbackAnalyzer } from '../../../lib/ai/enhanced-analyzer.js';
+import { EnhancedFeedbackAnalyzer } from '../../../libs/ai/enhanced-analyzer.js';
 
 /**
  * Enhanced Feedback Processing API

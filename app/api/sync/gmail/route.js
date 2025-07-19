@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../../libs/supabase/server.js';
-const { GmailService } = require('../../../../lib/services/gmail.js');
+const { GmailService } = require('../../../../libs/services/gmail.js');
 const { google } = require('googleapis');
 
 /**

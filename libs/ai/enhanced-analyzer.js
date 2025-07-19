@@ -72,7 +72,8 @@ Analysis Guidelines:
 - Keywords should be relevant product/feature terms
 - User intent should be clear and actionable
 - Business impact considers potential revenue/user satisfaction effects
-- Urgency considers time-sensitivity of the issue`;
+- Urgency considers time-sensitivity of the issue
+- Confidence should be between 0.0 and 1.0`;
 
       const completion = await this.openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -98,7 +99,7 @@ Analysis Guidelines:
         sentiment: analysis.sentiment || 'neutral',
         priority: analysis.priority || 'medium',
         category: analysis.category || 'general',
-        confidence: analysis.confidence || 0.8,
+        confidence: Math.min(Math.max(analysis.confidence || 0.8, 0.0), 1.0),
         keywords: analysis.keywords || [],
         user_intent: analysis.user_intent || 'Not specified',
         business_impact: analysis.business_impact || 'medium',

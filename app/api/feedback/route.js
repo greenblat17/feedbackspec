@@ -8,7 +8,7 @@ import {
   findDuplicateFeedback,
   groupSimilarFeedback,
 } from "../../../libs/ai/index.js";
-import { EnhancedFeedbackAnalyzer } from "../../../lib/ai/enhanced-analyzer.js";
+import { EnhancedFeedbackAnalyzer } from "../../../libs/ai/enhanced-analyzer.js";
 import {
   withErrorHandler,
   createValidationError,

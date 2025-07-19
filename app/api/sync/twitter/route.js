@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '../../../../libs/supabase/server.js';
-const { TwitterService } = require('../../../../lib/services/twitter.js');
+const { TwitterService } = require('../../../../libs/services/twitter.js');
 
 /**
  * Twitter sync route
