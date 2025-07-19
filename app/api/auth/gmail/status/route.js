@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createAuthenticatedSupabaseClient } from '../../../../../libs/auth/server-auth';
-import { createValidationError, logErrorToMonitoring } from '../../../../../libs/errors/error-handler';
-import { gmailService } from '../../../../../libs/services/gmail';
+import { createAuthenticatedSupabaseClient } from '../../../../../libs/auth/server-auth.js';
+import { createValidationError, logErrorToMonitoring } from '../../../../../libs/errors/error-handler.js';
+import { gmailService } from '../../../../../libs/services/gmail.js';
 
 /**
  * Gmail Connection Status API Route
