@@ -25,6 +25,12 @@ export default function DashboardNav() {
       description: "Add and manage feedback",
     },
     {
+      name: "Twitter",
+      href: "/dashboard/twitter",
+      icon: "🐦",
+      description: "View synced tweets",
+    },
+    {
       name: "Analytics",
       href: "/dashboard/analytics",
       icon: "📊",
